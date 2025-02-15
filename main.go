@@ -21,7 +21,7 @@ import (
     goldmarkHtml "github.com/yuin/goldmark/renderer/html"
 )
 
-var notesPath = getArgValue("--md-folder")
+var notesPath,_ = filepath.EvalSymlinks(getArgValue("--md-folder"))
 
 var onlyPublic = getArgValue("--only-public")
 var indexPage = getArgValue("--index")
