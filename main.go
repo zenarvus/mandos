@@ -17,6 +17,8 @@ import (
 	"github.com/gofiber/template/html/v2"
 
     "github.com/yuin/goldmark"
+    "github.com/yuin/goldmark/extension"
+    "github.com/yuin/goldmark/parser"
     "github.com/fsnotify/fsnotify"
     goldmarkHtml "github.com/yuin/goldmark/renderer/html"
 )
@@ -38,6 +40,8 @@ func inServedCategory(content string) bool {
 }
 
 var htmlConverter = goldmark.New(
+    goldmark.WithExtensions(extension.GFM, extension.Footnote),
+    goldmark.WithParserOptions(parser.WithAttribute()),
     goldmark.WithRendererOptions(
         goldmarkHtml.WithHardWraps(),
         goldmarkHtml.WithXHTML(),
