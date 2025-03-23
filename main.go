@@ -8,8 +8,8 @@ func main() {
 	//init template files
 	initTemplates()
 
-	//Load nodes and watch for changes.
-	loadAndWatchNodesAndAttachments()
+	loadNotesAndAttachments()
+	go watchFileChanges()
 
 	app := fiber.New()
 	initRoutes(app)

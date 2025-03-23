@@ -15,13 +15,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var notesPath,_ = filepath.EvalSymlinks(getArgValue("--md-folder"))
+var notesPath = getNotesPath() //it does not and should not have a slash suffix.
 var onlyPublic = getArgValue("--only-public")
 var indexPage = getArgValue("--index")
 var author = getArgValue("--author")
 
-// filename -> title/filename
-var servedFiles = make(map[string]string)
+// filename -> {title/filename, date}
+type servedFile struct {MapKey, Title, Date string}
+var servedFiles = make(map[string]servedFile)
 
 var templates = make(map[string]*templater.Template)
 //initialize the template file
@@ -56,22 +57,29 @@ func extractAttachments(content, baseDir string) {
 	for _, match := range matches {
 		attachmentPath := filepath.Join(baseDir, match[1])
 		if _, err := os.Stat(attachmentPath); err == nil {
-			servedFiles[strings.TrimPrefix(attachmentPath,toAbsolutePath(notesPath))] = filepath.Base(attachmentPath)
+			servedFiles[strings.TrimPrefix(attachmentPath, notesPath)] = servedFile{
+				MapKey: strings.TrimPrefix(attachmentPath, notesPath),
+				Title: filepath.Base(attachmentPath),
+			}
 		}
 	}
 }
 
 func loadNotesAndAttachments() {
-	servedFiles = make(map[string]string)
+	servedFiles = make(map[string]servedFile)
 
 	err := filepath.WalkDir(notesPath, func(npath string, d fs.DirEntry, err error) error {
 		if err != nil {return err}
 		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
-			fileInfo, err := getFileInfo(npath)
+			fileinfo, err := getFileInfo(npath)
 			if err != nil {return err}
-			if inServedCategory(fileInfo.Metadata["public"]) {
-				servedFiles[strings.TrimPrefix(npath,notesPath)]=fileInfo.Title
-				extractAttachments(string(fileInfo.Content), toAbsolutePath(notesPath))
+			if inServedCategory(fileinfo.Metadata["public"]) {
+				servedFiles[strings.TrimPrefix(npath, notesPath)] = servedFile{
+					MapKey: strings.TrimPrefix(npath, notesPath),
+					Title: fileinfo.Title,
+					Date: fileinfo.Metadata["date"],
+				}
+				extractAttachments(fileinfo.Content, notesPath)
 			}
 		}
 		return nil
@@ -85,20 +93,20 @@ type fileInfo struct {
 	Content string
 	Metadata map[string]string
 }
-func getFileInfo(filename string) (fileInfo fileInfo, err error) {
+func getFileInfo(filename string) (fileinfo fileInfo, err error) {
 	if fileExists(filename) {
 		// Open the file
 		file, err := os.Open(filename)
-		if err != nil {return fileInfo, err}
+		if err != nil {return fileinfo, err}
 		defer file.Close()
 
 		// Read the file content into a byte slice
 		content, err := io.ReadAll(file)
-		if err != nil {return fileInfo, err}
+		if err != nil {return fileinfo, err}
 
 		contentStr := string(content)
 
-		fileInfo.Title = "Untitled"
+		fileinfo.Title = "Untitled"
 
 		contentStrArr:=strings.Split(contentStr,"\n")
 
@@ -125,7 +133,7 @@ func getFileInfo(filename string) (fileInfo fileInfo, err error) {
 
 			//extract title
 			if strings.HasPrefix(line, "# "){
-				fileInfo.Title = strings.TrimPrefix(line, "# ")
+				fileinfo.Title = strings.TrimPrefix(line, "# ")
 			}
 
 			//remove excluded lines if the app run with --only-public=yes
@@ -135,26 +143,31 @@ func getFileInfo(filename string) (fileInfo fileInfo, err error) {
         
 			newContentLinesArr=append(newContentLinesArr,line)
 		}
-		fileInfo.Content=strings.Join(newContentLinesArr,"\n")
+		fileinfo.Content=strings.Join(newContentLinesArr,"\n")
 
-		//Process metadata
+		//Parse the metadata string
 		if metadataString != "" {
 			switch metadataType {
 			case "toml":
-				err = toml.Unmarshal([]byte(metadataString), &fileInfo.Metadata)
-				if err != nil {return fileInfo, err}
+				err = toml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
+				if err != nil {return fileinfo, err}
 			case "yaml":
-				err = yaml.Unmarshal([]byte(metadataString), &fileInfo.Metadata)
-				if err != nil {return fileInfo, err}
+				err = yaml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
+				if err != nil {return fileinfo, err}
 			}
 		}
 
-		return fileInfo, nil
+		//Prefer the metadata title over the first header
+		if fileinfo.Metadata["title"] != "" {
+			fileinfo.Title = fileinfo.Metadata["title"]
+		}
+
+		return fileinfo, nil
   
 	} else {
-		fileInfo.Content = "<p style='text-align:center;'>404 file does not exist</p>"
-		fileInfo.Title = "404 Not Found"
-		return fileInfo, fmt.Errorf("404 Not Found")
+		fileinfo.Content = "<p style='text-align:center;'>404 file does not exist</p>"
+		fileinfo.Title = "404 Not Found"
+		return fileinfo, fmt.Errorf("404 Not Found")
 	}
 
 }
@@ -212,11 +225,17 @@ func getArgValue(wantedArg string)string{
   }else if wantedArg=="--index"{log.Fatal(fmt.Errorf("Please specify index page with --index="))
   }else if wantedArg=="--only-public"{returnValue="no"
   }else if wantedArg=="--author"{returnValue="author"
-  }else if wantedArg=="--templates"{
-		//get the notesPath in here to prevent initialization cycle
-		notesPath,_ := filepath.EvalSymlinks(getArgValue("--md-folder"))
-		returnValue=path.Join(notesPath, "mandos")
-  }
+  }else if wantedArg=="--templates"{returnValue=path.Join(getNotesPath(), "mandos")}
 
   return returnValue
+}
+
+func getNotesPath() string {
+	notesPath, err := filepath.EvalSymlinks(getArgValue("--md-folder"))
+	notesPath = toAbsolutePath(notesPath)
+	if err!=nil{log.Fatal(err)}
+
+	if strings.HasSuffix(notesPath, "/") {strings.TrimSuffix(notesPath, "/")}
+
+	return notesPath
 }
