@@ -6,7 +6,9 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/gofiber/template/html/v2 v2.1.2
+	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/yuin/goldmark v1.7.8
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
