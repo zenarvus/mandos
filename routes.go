@@ -29,19 +29,21 @@ func initRoutes(app *fiber.App){
 
 	//Send a node list data to the client
 	app.Get("/node-list", func(c *fiber.Ctx)error{
-		var nodeArr []map[string]string
+		var nodeArr []map[string]interface{}
 		for _,servedFile := range servedFiles {
-			nodeArr = append(nodeArr, map[string]string{
+			nodeArr = append(nodeArr, map[string]interface{}{
 				"title": servedFile.Title,
 				"file": servedFile.MapKey,
+				"outlinks": servedFile.OutLinks,
+				"inlinks": servedFile.InLinks,
 			})
 		}
 		return c.JSON(nodeArr)
 	})
 
 	app.Get("/media/*", func(c *fiber.Ctx)error{
-          if servedFiles[c.Params("*")].MapKey != ""{
-            return c.SendFile(path.Join(notesPath,c.Params("*")))
+          if servedFiles["/media/"+c.Params("*")].MapKey != ""{
+            return c.SendFile(path.Join(notesPath,"/media/"+c.Params("*")))
           }else{
             return c.SendStatus(404)
           }
@@ -70,7 +72,7 @@ func initRoutes(app *fiber.App){
 		}
 		var fileinfo fileInfo
 		if servedFiles[urlPath].MapKey != "" {
-			fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath))
+			fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true)
 		}
 
 		if fileinfo.Content == "" && fileinfo.Title == "" {

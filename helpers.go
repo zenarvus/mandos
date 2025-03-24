@@ -20,8 +20,7 @@ var onlyPublic = getArgValue("--only-public")
 var indexPage = getArgValue("--index")
 var author = getArgValue("--author")
 
-// filename -> {title/filename, date}
-type servedFile struct {MapKey, Title, Date string}
+type servedFile struct {MapKey, Title, Date string; InLinks, OutLinks []string}
 var servedFiles = make(map[string]servedFile)
 
 var templates = make(map[string]*templater.Template)
@@ -71,13 +70,14 @@ func loadNotesAndAttachments() {
 	err := filepath.WalkDir(notesPath, func(npath string, d fs.DirEntry, err error) error {
 		if err != nil {return err}
 		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
-			fileinfo, err := getFileInfo(npath)
+			fileinfo, err := getFileInfo(npath, true)
 			if err != nil {return err}
 			if inServedCategory(fileinfo.Metadata["public"]) {
 				servedFiles[strings.TrimPrefix(npath, notesPath)] = servedFile{
 					MapKey: strings.TrimPrefix(npath, notesPath),
 					Title: fileinfo.Title,
 					Date: fileinfo.Metadata["date"],
+					OutLinks: fileinfo.OutLinks,
 				}
 				extractAttachments(fileinfo.Content, notesPath)
 			}
@@ -86,14 +86,17 @@ func loadNotesAndAttachments() {
 	})
 
 	if err != nil {fmt.Println("Error walking the path:", err)}
+
+	SetInLinks()
 }
 
 type fileInfo struct {
 	Title string
 	Content string
 	Metadata map[string]string
+	OutLinks []string
 }
-func getFileInfo(filename string) (fileinfo fileInfo, err error) {
+func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err error) {
 	if fileExists(filename) {
 		// Open the file
 		file, err := os.Open(filename)
@@ -106,7 +109,24 @@ func getFileInfo(filename string) (fileinfo fileInfo, err error) {
 
 		contentStr := string(content)
 
-		fileinfo.Title = "Untitled"
+		//tag
+		/*re := regexp.MustCompile(`(#[a-zA-Z_\-]+)`)
+		contentStr = re.ReplaceAllString(contentStr, `<span class="tag">$1</span>`)*/
+
+		//node connections
+		if includeConns {
+			linksRe := regexp.MustCompile(`\[.*?\]\((.*)\)`)
+			matches := linksRe.FindAllStringSubmatch(contentStr, -1)
+			matches = append(matches, regexp.MustCompile(`<.+src="/([^\"]+)".*?>`).FindAllStringSubmatch(contentStr, -1)...)
+			for _, match := range matches {
+				if !regexp.MustCompile(`^https?://`).MatchString(match[1]){
+					fileinfo.OutLinks = append(fileinfo.OutLinks,
+						strings.TrimPrefix(filepath.Join(notesPath, match[1]),notesPath))
+				}
+			}
+		}
+
+		fileinfo.Title = strings.TrimPrefix(filename,"/")
 
 		contentStrArr:=strings.Split(contentStr,"\n")
 
@@ -170,6 +190,18 @@ func getFileInfo(filename string) (fileinfo fileInfo, err error) {
 		return fileinfo, fmt.Errorf("404 Not Found")
 	}
 
+}
+
+func SetInLinks(){
+	for _, fnode := range servedFiles {
+		for _, outLink := range fnode.OutLinks {
+			updatedStruct := servedFiles[outLink]
+			if updatedStruct.MapKey != "" {
+				updatedStruct.InLinks = append(updatedStruct.InLinks, fnode.MapKey)
+				servedFiles[outLink]=updatedStruct
+			}
+		}
+	}
 }
 
 // expandHomeDir replaces ~ with the user's home directory.
