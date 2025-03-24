@@ -5,9 +5,7 @@ import (
 )
 
 func main() {
-	//init template files
-	initTemplates()
-
+	loadTemplates()
 	loadNotesAndAttachments()
 	go watchFileChanges()
 

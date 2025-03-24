@@ -8,6 +8,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+//var watchlock bool
+
 func watchFileChanges() {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {log.Fatal(err)}
@@ -37,7 +39,8 @@ func watchFileChanges() {
 		case event, ok := <-watcher.Events:
 			if !ok {return}
 			// If a file is modified, created, or deleted, reload the servedFiles map
-			if event.Op&(fsnotify.Write/*|fsnotify.Create*/|fsnotify.Remove) != 0 {
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 {
+				loadTemplates()
 				loadNotesAndAttachments()
 
 				// If a new directory is created, watch it

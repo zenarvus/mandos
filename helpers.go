@@ -25,7 +25,8 @@ var servedFiles = make(map[string]servedFile)
 
 var templates = make(map[string]*templater.Template)
 //initialize the template file
-func initTemplates(){
+func loadTemplates(){
+	templates = make(map[string]*templater.Template)
 	templatesPath := getArgValue("--templates")
 	files, err := os.ReadDir(templatesPath)
 	if err != nil {log.Fatal(err)}
