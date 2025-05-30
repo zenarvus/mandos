@@ -136,6 +136,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 		var metadataString string
 
 		var newContentLinesArr []string
+		var gotTitle bool
 		for i,line:=range contentStrArr {
 			//extract metadata
 			if i==0 && (line == "---" || line == "+++"){
@@ -153,8 +154,9 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 			if inMetadataBlock {metadataString += line+"\n"; continue}
 
 			//extract title
-			if strings.HasPrefix(line, "# "){
+			if !gotTitle && strings.HasPrefix(line, "# "){
 				fileinfo.Title = strings.TrimPrefix(line, "# ")
+				gotTitle=true
 			}
 
 			//remove excluded lines if the app run with --only-public=yes
@@ -240,7 +242,7 @@ func getArgValue(wantedArg string)string{
     "--only-public":true,
     "--index":true,
     "--author":true,
-	"--templates": true, //The location of the templates. Default is mandos folder in the md-folder folder.
+	"--templates": true, //The location of the templates. Default is mandos folder in the md-folder.
   }
   for _,arg := range args {
     argKeyValue := strings.Split(arg,"=")

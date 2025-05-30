@@ -11,10 +11,11 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
+	mathjax "github.com/litao91/goldmark-mathjax"
 )
 
 var htmlConverter = goldmark.New(
-    goldmark.WithExtensions(extension.GFM, extension.Footnote),
+    goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax),
     goldmark.WithParserOptions(parser.WithAttribute()),
     goldmark.WithRendererOptions(
         goldmarkHtml.WithHardWraps(),
@@ -29,9 +30,9 @@ func initRoutes(app *fiber.App){
 
 	//Send a node list data to the client
 	app.Get("/node-list", func(c *fiber.Ctx)error{
-		var nodeArr []map[string]interface{}
+		var nodeArr []map[string]any
 		for _,servedFile := range servedFiles {
-			nodeArr = append(nodeArr, map[string]interface{}{
+			nodeArr = append(nodeArr, map[string]any{
 				"title": servedFile.Title,
 				"file": servedFile.MapKey,
 				"outlinks": servedFile.OutLinks,
@@ -90,7 +91,7 @@ func initRoutes(app *fiber.App){
 			nodeAuthor = fileinfo.Metadata["author"]
 		}else{nodeAuthor = author}
 
-		templateValues := map[string]interface{}{
+		templateValues := map[string]any{
 			"Host": strings.Split(c.Hostname(),".")[0],
 			"Content": html.String(),
 			"File": strings.TrimPrefix(urlPath,"/"),
