@@ -15,18 +15,18 @@ import (
 )
 
 var htmlConverter = goldmark.New(
-    goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax),
-    goldmark.WithParserOptions(parser.WithAttribute()),
-    goldmark.WithRendererOptions(
-        goldmarkHtml.WithHardWraps(),
-        goldmarkHtml.WithXHTML(),
-        goldmarkHtml.WithUnsafe(),
-    ),
+	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax),
+	goldmark.WithParserOptions(parser.WithAttribute()),
+	goldmark.WithRendererOptions(
+		goldmarkHtml.WithHardWraps(),
+		goldmarkHtml.WithXHTML(),
+		goldmarkHtml.WithUnsafe(),
+	),
 )
 
 func initRoutes(app *fiber.App){
-    //All files in static folder are served
-    app.Static("/static", path.Join(notesPath,"/static"))
+	//All files in static folder are served
+	app.Static("/static", path.Join(notesPath,"/static"))
 
 	//Send a node list data to the client
 	app.Get("/node-list", func(c *fiber.Ctx)error{
@@ -43,11 +43,11 @@ func initRoutes(app *fiber.App){
 	})
 
 	app.Get("/media/*", func(c *fiber.Ctx)error{
-          if servedFiles["/media/"+c.Params("*")].MapKey != ""{
-            return c.SendFile(path.Join(notesPath,"/media/"+c.Params("*")))
-          }else{
-            return c.SendStatus(404)
-          }
+		  if servedFiles["/media/"+c.Params("*")].MapKey != ""{
+			return c.SendFile(path.Join(notesPath,"/media/"+c.Params("*")))
+		  }else{
+			return c.SendStatus(404)
+		  }
 	})
 
 	app.Get("/rss", func(c *fiber.Ctx)error{
@@ -62,9 +62,9 @@ func initRoutes(app *fiber.App){
 		return c.XML(ConvertToRSS(timeAwareNodes, strings.TrimSuffix(c.BaseURL(),"/"), c.Hostname()))
 	})
 
-    //Only markdown files with <!--public--> metadata and their previewed attachments are served
-    app.Get("/*", func(c *fiber.Ctx) error {
-        urlPath := "/"+c.Params("*")
+	//Only markdown files with <!--public--> metadata and their previewed attachments are served
+	app.Get("/*", func(c *fiber.Ctx) error {
+		urlPath := "/"+c.Params("*")
 		if urlPath=="/"{urlPath+=indexPage}
 
 		//if the url does not end with .md, return 404
@@ -109,5 +109,5 @@ func initRoutes(app *fiber.App){
 			if err != nil {return c.Status(500).SendString("Error executing template")}
 			return nil
 		}else{return c.SendString("No template found")}
-    })
+	})
 }

@@ -37,21 +37,21 @@ type rssFeed struct {
 	Channel channel  `xml:"channel"`
 }
 type channel struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link"`
+	Title	   string `xml:"title"`
+	Link		string `xml:"link"`
 	Description string `xml:"description"`
-	PubDate     string `xml:"pubDate"`
-	Items       []rssItem `xml:"item"`
+	PubDate	 string `xml:"pubDate"`
+	Items	   []rssItem `xml:"item"`
 }
 type rssItem struct {
-	Title       string `xml:"title"`
-	Link        string `xml:"link"`
+	Title	   string `xml:"title"`
+	Link		string `xml:"link"`
 	Description string `xml:"description"`
-	PubDate     string `xml:"pubDate"`
+	PubDate	 string `xml:"pubDate"`
 	/*Enclosure   enclosure  `xml:"enclosure"`*/
 }
 type enclosure struct {
-	URL    string `xml:"url,attr"`
+	URL	string `xml:"url,attr"`
 	Type   string `xml:"type,attr"`
 	Length int64  `xml:"length,attr"`
 }
@@ -68,12 +68,12 @@ func ConvertToRSS(nodes []servedFile, baseUrl, title string) (rssFeed) {
 	rssItems := make([]rssItem, 0)
 	for _, node := range nodes {
 		rssItem := rssItem{
-			Title:       node.Title,
+			Title:	   node.Title,
 			Link:		 baseUrl+node.MapKey,
 			//Description: node.Content,
-			PubDate:     getTimeFromStr(node.Date).Format("Mon, 02 Jan 2006 15:04:05 GMT"),
-            /*Enclosure: Enclosure{
-				URL:    BaseURL + "/public/uploads/post_image/" + post.Image, // Provide the image URL for each post
+			PubDate:	 getTimeFromStr(node.Date).Format("Mon, 02 Jan 2006 15:04:05 GMT"),
+			/*Enclosure: Enclosure{
+				URL:	BaseURL + "/public/uploads/post_image/" + post.Image, // Provide the image URL for each post
 				Type:   "image/jpeg", // Specify the appropriate MIME type for the image
 				Length: 0,   
 			},*/

@@ -12,13 +12,13 @@ func main() {
 	app := fiber.New()
 	initRoutes(app)
 
-    certFile:=getArgValue("--cert")
-    keyFile:=getArgValue("--key")
-    if certFile=="" || keyFile=="" {
-        err := app.Listen(":"+getArgValue("--port"))
-        if err!=nil{panic(err)}
-    } else {
-        err := app.ListenTLS(":"+getArgValue("--port"),certFile,keyFile)
-        if err!=nil{panic(err)}
-    }
+	certFile:=getArgValue("--cert")
+	keyFile:=getArgValue("--key")
+	if certFile=="" || keyFile=="" {
+		err := app.Listen(":"+getArgValue("--port"))
+		if err!=nil{panic(err)}
+	} else {
+		err := app.ListenTLS(":"+getArgValue("--port"),certFile,keyFile)
+		if err!=nil{panic(err)}
+	}
 }

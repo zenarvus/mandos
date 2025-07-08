@@ -45,7 +45,7 @@ func loadTemplates(){
 }
 
 func inServedCategory(metadataPublicField string) bool {
-    if onlyPublic=="no" || metadataPublicField=="true" {return true}
+	if onlyPublic=="no" || metadataPublicField=="true" {return true}
 	return false
 }
 
@@ -53,7 +53,7 @@ func inServedCategory(metadataPublicField string) bool {
 func extractAttachments(content, baseDir string) {
 	re := regexp.MustCompile(`!\[.*?\]\((.*)\)`)
 	matches := re.FindAllStringSubmatch(content, -1)
-    matches = append(matches, regexp.MustCompile(`<.+src="/([^\"]+)".*?>`).FindAllStringSubmatch(content, -1)...)
+	matches = append(matches, regexp.MustCompile(`<.+src="/([^\"]+)".*?>`).FindAllStringSubmatch(content, -1)...)
 	for _, match := range matches {
 		attachmentPath := filepath.Join(baseDir, match[1])
 		if _, err := os.Stat(attachmentPath); err == nil {
@@ -163,7 +163,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 			if onlyPublic != "no" {
 				if strings.Contains(line,"<!--exc-->"){continue}
 			}
-        
+		
 			newContentLinesArr=append(newContentLinesArr,line)
 		}
 		fileinfo.Content=strings.Join(newContentLinesArr,"\n")
@@ -224,34 +224,34 @@ func toAbsolutePath(path string) (string) {
 }
 
 func fileExists(filePath string) bool {
-    _, err := os.Stat(filePath)
-    if os.IsNotExist(err) {
-        return false
-    }
-    return err == nil
+	_, err := os.Stat(filePath)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return err == nil
 }
 
 func getArgValue(wantedArg string)string{
   args := os.Args
   returnValue := ""
   var available = map[string]bool{
-    "--port":true,
-    "--md-folder":true,
-    "--cert":true,
-    "--key":true,
-    "--only-public":true,
-    "--index":true,
-    "--author":true,
+	"--port":true,
+	"--md-folder":true,
+	"--cert":true,
+	"--key":true,
+	"--only-public":true,
+	"--index":true,
+	"--author":true,
 	"--templates": true, //The location of the templates. Default is mandos folder in the md-folder.
   }
   for _,arg := range args {
-    argKeyValue := strings.Split(arg,"=")
-    if len(argKeyValue) == 2 && available[argKeyValue[0]]==true && argKeyValue[0]==wantedArg {
-      return strings.TrimPrefix(strings.TrimSuffix(argKeyValue[1],"\""),"\"")
-    
-    }else if len(argKeyValue) == 1 && available[argKeyValue[0]]==true {
-      log.Fatal(fmt.Errorf("Error in argument formatting"))
-    }
+	argKeyValue := strings.Split(arg,"=")
+	if len(argKeyValue) == 2 && available[argKeyValue[0]]==true && argKeyValue[0]==wantedArg {
+	  return strings.TrimPrefix(strings.TrimSuffix(argKeyValue[1],"\""),"\"")
+	
+	}else if len(argKeyValue) == 1 && available[argKeyValue[0]]==true {
+	  log.Fatal(fmt.Errorf("Error in argument formatting"))
+	}
   }
 
   //if user did not specified desired wantedArg
