@@ -15,7 +15,7 @@ The source code for my Markdown previewer and personal website.
     > - `{{.Title}}`: The last H1 heading of the Markdown file or the `title` in the document's metadata.
     > - `{{.Content}}`: The content of the Markdown file, excluding metadata.
 
-    > [!INFO]
+    > [!NOTE]
     > You can also use different templates for different Markdown files by specifying the template name in the `template` metadata field.
 
 ### 2.0 Create `static` Folder
