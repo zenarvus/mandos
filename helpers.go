@@ -33,7 +33,6 @@ func loadTemplates(){
 
 	for _, file := range files {
 		if !file.IsDir() { // Check if it's not a directory
-			fmt.Println(file.Name())
 			tmplContent, err := os.ReadFile(path.Join(templatesPath, file.Name()))
 			if err != nil {log.Fatal(err)}
 			template, err := templater.New(file.Name()).Parse(string(tmplContent))

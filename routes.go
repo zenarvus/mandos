@@ -12,10 +12,13 @@ import (
 	"github.com/yuin/goldmark/parser"
 	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
 	mathjax "github.com/litao91/goldmark-mathjax"
+
+	"github.com/mdigger/goldmark-attributes"
 )
 
 var htmlConverter = goldmark.New(
-	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax),
+	attributes.Enable,
+	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, VideoEmbedder()),
 	goldmark.WithParserOptions(parser.WithAttribute()),
 	goldmark.WithRendererOptions(
 		goldmarkHtml.WithHardWraps(),
@@ -92,7 +95,7 @@ func initRoutes(app *fiber.App){
 		}else{nodeAuthor = author}
 
 		templateValues := map[string]any{
-			"Host": strings.Split(c.Hostname(),".")[0],
+			"Host": c.Hostname(),
 			"Content": html.String(),
 			"File": strings.TrimPrefix(urlPath,"/"),
 			"Title": fileinfo.Title,

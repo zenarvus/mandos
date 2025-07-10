@@ -6,6 +6,7 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/litao91/goldmark-mathjax v0.0.0-20210217064022-a43cf739a50f
+	github.com/mdigger/goldmark-attributes v0.0.0-20210529130523-52da21a6bf2b
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/yuin/goldmark v1.7.8
 	gopkg.in/yaml.v3 v3.0.1
