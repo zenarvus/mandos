@@ -1,16 +1,18 @@
 package main
 
 import (
-	"os"
-	"log"
-	"regexp"
+	"errors"
 	"fmt"
-	"io/fs"
 	"io"
+	"io/fs"
+	"log"
+	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	templater "text/template"
+
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -48,12 +50,16 @@ func inServedCategory(metadataPublicField string) bool {
 	return false
 }
 
-//extract previewed links from markdown's content
+//extract non-markdown links from markdown's content
 func extractAttachments(content, baseDir string) {
-	re := regexp.MustCompile(`!\[.*?\]\((.*)\)`)
+	re := regexp.MustCompile(`\[.*?\]\((.*)\)`)
 	matches := re.FindAllStringSubmatch(content, -1)
 	matches = append(matches, regexp.MustCompile(`<.+src="/([^\"]+)".*?>`).FindAllStringSubmatch(content, -1)...)
 	for _, match := range matches {
+		pathExt := path.Ext(match[1])
+		//Skip the markdown files (thus, extract only the media)
+		if pathExt == ".md" || pathExt == ".mdx" {continue}
+
 		attachmentPath := filepath.Join(baseDir, match[1])
 		if _, err := os.Stat(attachmentPath); err == nil {
 			servedFiles[strings.TrimPrefix(attachmentPath, notesPath)] = servedFile{
@@ -172,10 +178,10 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 			switch metadataType {
 			case "toml":
 				err = toml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
-				if err != nil {return fileinfo, err}
+				if err != nil {return fileinfo, errors.New(filename+": "+err.Error())}
 			case "yaml":
 				err = yaml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
-				if err != nil {return fileinfo, err}
+				if err != nil {return fileinfo, errors.New(filename+": "+err.Error())}
 			}
 		}
 
@@ -187,7 +193,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 		return fileinfo, nil
   
 	} else {
-		fileinfo.Content = "<p style='text-align:center;'>404 file does not exist</p>"
+		fileinfo.Content = "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>"
 		fileinfo.Title = "404 Not Found"
 		return fileinfo, fmt.Errorf("404 Not Found")
 	}

@@ -62,3 +62,4 @@ You need to create a folder named `static` at the root of your Markdown folder.
 ## Additional Tips
 - Metadata field must be at the top of your markdown file. Its syntax is similar to Hugo's. Place fields inside `+++` for `toml` and `---` for `yaml` metadata.
 - You can use JavaScript in your Markdown files. It's supported.
+- All non-Markdown file links in a public node are also made public.
