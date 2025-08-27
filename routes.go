@@ -3,22 +3,22 @@ package main
 import (
 	"bytes"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
-
 	"github.com/gofiber/fiber/v2"
+	mathjax "github.com/litao91/goldmark-mathjax"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
-	mathjax "github.com/litao91/goldmark-mathjax"
 
 	"github.com/mdigger/goldmark-attributes"
 )
 
 var htmlConverter = goldmark.New(
 	attributes.Enable,
-	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, VideoEmbedder()),
+	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, BetterMediaExt()),
 	goldmark.WithParserOptions(parser.WithAttribute()),
 	goldmark.WithRendererOptions(
 		goldmarkHtml.WithHardWraps(),
@@ -29,7 +29,7 @@ var htmlConverter = goldmark.New(
 
 func initRoutes(app *fiber.App){
 	//All files in static folder are served
-	app.Static("/static", path.Join(notesPath,"/static"))
+	app.Static("/static", path.Join(notesPath,"/static"), fiber.Static{MaxAge:60*60*24*7})
 
 	//Send a node list data to the client
 	app.Get("/node-list", func(c *fiber.Ctx)error{
@@ -43,14 +43,6 @@ func initRoutes(app *fiber.App){
 			})
 		}
 		return c.JSON(nodeArr)
-	})
-
-	app.Get("/media/*", func(c *fiber.Ctx)error{
-		  if servedFiles["/media/"+c.Params("*")].MapKey != ""{
-			return c.SendFile(path.Join(notesPath,"/media/"+c.Params("*")))
-		  }else{
-			return c.SendStatus(404)
-		  }
 	})
 
 	app.Get("/rss", func(c *fiber.Ctx)error{
@@ -70,47 +62,53 @@ func initRoutes(app *fiber.App){
 		urlPath := "/"+c.Params("*")
 		if urlPath=="/"{urlPath+=indexPage}
 
-		//if the url does not end with .md, return 404
-		if len(urlPath)<3 || urlPath[len(urlPath)-3:] != ".md" {
-			return c.SendStatus(404)
+		// If the wanted file is markdown
+		if filepath.Ext(urlPath)==".md" || filepath.Ext(urlPath)==".mdx"{
+			var fileinfo fileInfo
+			if servedFiles[urlPath].MapKey != "" {
+				fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true)
+			}
+
+			if fileinfo.Content == "" && fileinfo.Title == "" {
+				fileinfo.Content = "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>"
+				fileinfo.Title = "404 Not Found"
+			}
+
+			//convert md content to html
+			var html bytes.Buffer
+			if err := htmlConverter.Convert([]byte(fileinfo.Content), &html);
+			err != nil {panic(err)}
+
+			var nodeAuthor string
+			if fileinfo.Metadata["author"] != "" {
+				nodeAuthor = fileinfo.Metadata["author"]
+			}else{nodeAuthor = author}
+
+			templateValues := map[string]any{
+				"Host": c.Hostname(),
+				"Metadata": fileinfo.Metadata,
+				"Content": html.String(),
+				"File": strings.TrimPrefix(urlPath,"/"),
+				"Title": fileinfo.Title,
+				"Author": nodeAuthor,
+			}
+			c.Response().Header.Add("Content-Type", "text/html")
+
+			templateName := fileinfo.Metadata["template"]
+			if templateName == "" {templateName = "main.html"}
+			// Render the template
+			if templates[templateName] != nil {
+				err := templates[templateName].Execute(c.Response().BodyWriter(), templateValues)
+				if err != nil {return c.Status(500).SendString("Error executing template")}
+				return nil
+			}else{return c.SendString("No template found")}
+		
+		// If the wanted file is not markdown
+		}else{
+			if servedFiles[urlPath].MapKey != ""{
+				c.Response().Header.Add("Cache-Control", "max-age=604800")
+				return c.SendFile(path.Join(notesPath, urlPath))
+			}else{return c.SendStatus(404)}
 		}
-		var fileinfo fileInfo
-		if servedFiles[urlPath].MapKey != "" {
-			fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true)
-		}
-
-		if fileinfo.Content == "" && fileinfo.Title == "" {
-			fileinfo.Content = "<p style='text-align:center;'>404 file does not exist</p>"
-			fileinfo.Title = "404 Not Found"
-		}
-
-		//convert md content to html
-		var html bytes.Buffer
-		if err := htmlConverter.Convert([]byte(fileinfo.Content), &html);
-		err != nil {panic(err)}
-
-		var nodeAuthor string
-		if fileinfo.Metadata["author"] != "" {
-			nodeAuthor = fileinfo.Metadata["author"]
-		}else{nodeAuthor = author}
-
-		templateValues := map[string]any{
-			"Host": c.Hostname(),
-			"Content": html.String(),
-			"File": strings.TrimPrefix(urlPath,"/"),
-			"Title": fileinfo.Title,
-			"Author": nodeAuthor,
-		}
-
-		c.Response().Header.Add("Content-Type", "text/html")
-
-		templateName := fileinfo.Metadata["template"]
-		if templateName == "" {templateName = "main.html"}
-		// Render the template
-		if templates[templateName] != nil {
-			err := templates[templateName].Execute(c.Response().BodyWriter(), templateValues)
-			if err != nil {return c.Status(500).SendString("Error executing template")}
-			return nil
-		}else{return c.SendString("No template found")}
 	})
 }

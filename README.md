@@ -10,6 +10,7 @@ The source code for my Markdown previewer and personal website.
 - **1.2: Create a file named `main.html` within it. This will be the default template used.**
     > You can include 5 variables in the template:
     > - `{{.Host}}`: Hostname
+    > - `{{.Metadata}}` The metadata part of the file.
     > - `{{.File}}`: Markdown's file name.
     > - `{{.Author}}`: The main author you specify when starting the server or the one defined in the `author` metadata.
     > - `{{.Title}}`: The last H1 heading of the Markdown file or the `title` in the document's metadata.
@@ -18,12 +19,13 @@ The source code for my Markdown previewer and personal website.
     > [!NOTE]
     > You can also use different templates for different Markdown files by specifying the template name in the `template` metadata field.
 
-### 2.0 Create `static` Folder
+### 2.0 Create static Folder
 You need to create a folder named `static` at the root of your Markdown folder.
 
 `cd /path/to/markdown/folder && mkdir static`
 
-- Files in this folder will always be served. This is where you should place your CSS and JavaScript files.
+- Files in this folder will **always** be served. This is where you should place your CSS and JavaScript files.
+- Non-markdown files inside other directories are only served if they are linked in a public markdown file.
 
 ### 3.0 Run The Server
 `go -C /path/to/mandos run . --md-folder=/path/to/markdown/folder --author=Zenarvus --index=index.md --only-public=yes --templates=/path/to/templates/folder`
