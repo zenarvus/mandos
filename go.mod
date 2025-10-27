@@ -1,14 +1,17 @@
 module mandos
 
-go 1.22.4
+go 1.24.4
+
+toolchain go1.24.7
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofiber/fiber/v2 v2.52.5
-	github.com/litao91/goldmark-mathjax v0.0.0-20210217064022-a43cf739a50f
 	github.com/mdigger/goldmark-attributes v0.0.0-20210529130523-52da21a6bf2b
 	github.com/pelletier/go-toml/v2 v2.2.3
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.7.13
+	github.com/zenarvus/goldmark-mathjax v0.0.0-20251016143638-b6040e338455
+	go.abhg.dev/goldmark/mermaid v0.6.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -23,5 +26,5 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
 )

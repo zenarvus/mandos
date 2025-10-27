@@ -10,26 +10,58 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"bytes"
 	"strings"
+	"text/template"
 	templater "text/template"
-
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/zenarvus/goldmark-mathjax"
+	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/mdigger/goldmark-attributes"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
 var notesPath = getNotesPath() //it does not and should not have a slash suffix.
-var onlyPublic = getArgValue("--only-public")
-var indexPage = getArgValue("--index")
-var author = getArgValue("--author")
+var onlyPublic = getEnvValue("ONLY_PUBLIC")
+var indexPage = getEnvValue("INDEX")
 
-type servedFile struct {MapKey, Title, Date string; InLinks, OutLinks []string}
+// MapKey: Absolute file location, considering notesPath as root.
+// Title: The last H1 heading or the "title" metadata field.
+// Date: The "date" metadata field..
+// Outlinks: The list of nodes this node links to. 
+// Inlinks: The list of nodes contains a link to this node.
+type servedFile struct {MapKey, Title string; Metadata map[string]string; InLinks, OutLinks []string}
 var servedFiles = make(map[string]servedFile)
 
+/*
+type servedNode struct {Title string; Metadata map[string]string; InLinks, OutLinks []string}
+var nodeList []*servedFile
+var servedNodes = make(map[string]*servedFile)
+var servedAttachments = make(map[string]string)
+*/
+
+var htmlConverter = goldmark.New(
+	attributes.Enable,
+	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, BetterMediaExt()),
+	goldmark.WithParserOptions(parser.WithAttribute()),
+	goldmark.WithRendererOptions(goldmarkHtml.WithHardWraps(), goldmarkHtml.WithXHTML(), goldmarkHtml.WithUnsafe()),
+)
+func ConvertToHtml(mdText string) string {
+	var html bytes.Buffer
+	if err := htmlConverter.Convert([]byte(mdText), &html);
+	err != nil {panic(err)}
+	return html.String()
+}
+
 var templates = make(map[string]*templater.Template)
+var templateFuncs = template.FuncMap{"ToHtml": ConvertToHtml}
 //initialize the template file
 func loadTemplates(){
 	templates = make(map[string]*templater.Template)
-	templatesPath := getArgValue("--templates")
+	templatesPath := getEnvValue("TEMPLATES")
 	files, err := os.ReadDir(templatesPath)
 	if err != nil {log.Fatal(err)}
 
@@ -37,7 +69,7 @@ func loadTemplates(){
 		if !file.IsDir() { // Check if it's not a directory
 			tmplContent, err := os.ReadFile(path.Join(templatesPath, file.Name()))
 			if err != nil {log.Fatal(err)}
-			template, err := templater.New(file.Name()).Parse(string(tmplContent))
+			template, err := templater.New(file.Name()).Funcs(templateFuncs).Parse(string(tmplContent))
 			if err!=nil{log.Fatal(err)}
 
 			templates[file.Name()] = template
@@ -82,7 +114,7 @@ func loadNotesAndAttachments() {
 				servedFiles[strings.TrimPrefix(npath, notesPath)] = servedFile{
 					MapKey: strings.TrimPrefix(npath, notesPath),
 					Title: fileinfo.Title,
-					Date: fileinfo.Metadata["date"],
+					Metadata: fileinfo.Metadata,
 					OutLinks: fileinfo.OutLinks,
 				}
 				extractAttachments(fileinfo.Content, notesPath)
@@ -90,16 +122,14 @@ func loadNotesAndAttachments() {
 		}
 		return nil
 	})
-
 	if err != nil {fmt.Println("Error walking the path:", err)}
-
 	SetInLinks()
 }
 
 type fileInfo struct {
-	Title string
-	Content string
-	Metadata map[string]string
+	Title string // The last H1 Heading or the "title" metadata field.
+	Content string // Raw markdown content
+	Metadata map[string]string // Metadata part
 	OutLinks []string
 }
 func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err error) {
@@ -115,11 +145,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 
 		contentStr := string(content)
 
-		//tag
-		/*re := regexp.MustCompile(`(#[a-zA-Z_\-]+)`)
-		contentStr = re.ReplaceAllString(contentStr, `<span class="tag">$1</span>`)*/
-
-		//node connections
+		//Node Connections
 		if includeConns {
 			linksRe := regexp.MustCompile(`\[.*?\]\((.*)\)`)
 			matches := linksRe.FindAllStringSubmatch(contentStr, -1)
@@ -136,9 +162,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 
 		contentStrArr:=strings.Split(contentStr,"\n")
 
-		var inMetadataBlock bool
-		var metadataType string //toml or yaml
-		var metadataString string
+		var metadataString string; var inMetadataBlock bool; var metadataType string //toml or yaml
 
 		var newContentLinesArr []string
 		var gotTitle bool
@@ -164,10 +188,8 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 				gotTitle=true
 			}
 
-			//remove excluded lines if the app run with --only-public=yes
-			if onlyPublic != "no" {
-				if strings.Contains(line,"<!--exc-->"){continue}
-			}
+			//remove excluded lines if the app run with ONLY_PUBLIC=yes
+			if onlyPublic != "no" && strings.Contains(line,"<!--exc-->") {continue}
 		
 			newContentLinesArr=append(newContentLinesArr,line)
 		}
@@ -186,9 +208,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo fileInfo, err err
 		}
 
 		//Prefer the metadata title over the first header
-		if fileinfo.Metadata["title"] != "" {
-			fileinfo.Title = fileinfo.Metadata["title"]
-		}
+		if fileinfo.Metadata["title"] != "" { fileinfo.Title = fileinfo.Metadata["title"] }
 
 		return fileinfo, nil
   
@@ -204,7 +224,9 @@ func SetInLinks(){
 	for _, fnode := range servedFiles {
 		for _, outLink := range fnode.OutLinks {
 			updatedStruct := servedFiles[outLink]
+			// If outLink of the fnode exists in the served files
 			if updatedStruct.MapKey != "" {
+				// update the outLink node's inlinks and add fnode's MapKey
 				updatedStruct.InLinks = append(updatedStruct.InLinks, fnode.MapKey)
 				servedFiles[outLink]=updatedStruct
 			}
@@ -230,52 +252,30 @@ func toAbsolutePath(path string) (string) {
 
 func fileExists(filePath string) bool {
 	_, err := os.Stat(filePath)
-	if os.IsNotExist(err) {
-		return false
-	}
+	if os.IsNotExist(err) { return false }
 	return err == nil
 }
 
-func getArgValue(wantedArg string)string{
-  args := os.Args
-  returnValue := ""
-  var available = map[string]bool{
-	"--port":true,
-	"--md-folder":true,
-	"--cert":true,
-	"--key":true,
-	"--only-public":true,
-	"--index":true,
-	"--author":true,
-	"--templates": true, //The location of the templates. Default is mandos folder in the md-folder.
-  }
-  for _,arg := range args {
-	argKeyValue := strings.Split(arg,"=")
-	if len(argKeyValue) == 2 && available[argKeyValue[0]]==true && argKeyValue[0]==wantedArg {
-	  return strings.TrimPrefix(strings.TrimSuffix(argKeyValue[1],"\""),"\"")
-	
-	}else if len(argKeyValue) == 1 && available[argKeyValue[0]]==true {
-	  log.Fatal(fmt.Errorf("Error in argument formatting"))
+func getEnvValue(key string)string{
+	// If environment variable has a value, return it.
+	if os.Getenv(key) != "" {return os.Getenv(key)}
+	// If no value is assigned to the environment variable, use the default one or give an error.
+	switch key {
+	case "PORT": return "9700"
+	case "ONLY_PUBLIC": return "no"
+	//The location of the templates. Default is mandos folder in the md-folder.
+	case "TEMPLATES": return path.Join(getNotesPath(), "mandos")
+	case "MD_FOLDER": log.Fatal(fmt.Errorf("Please specify markdown folder path with MD_FOLDER environment variable."))
+	case "INDEX": log.Fatal(fmt.Errorf("Please specify index file using INDEX environment variable"))
 	}
-  }
-
-  //if user did not specified desired wantedArg
-  if wantedArg=="--port"{returnValue="9700"
-  }else if wantedArg=="--md-folder"{log.Fatal(fmt.Errorf("Please specify markdown folder path with --md-folder="))
-  }else if wantedArg=="--index"{log.Fatal(fmt.Errorf("Please specify index page with --index="))
-  }else if wantedArg=="--only-public"{returnValue="no"
-  }else if wantedArg=="--author"{returnValue="author"
-  }else if wantedArg=="--templates"{returnValue=path.Join(getNotesPath(), "mandos")}
-
-  return returnValue
+	return ""
 }
 
 func getNotesPath() string {
-	notesPath, err := filepath.EvalSymlinks(getArgValue("--md-folder"))
+	notesPath, err := filepath.EvalSymlinks(getEnvValue("MD_FOLDER"))
 	notesPath = toAbsolutePath(notesPath)
 	if err!=nil{log.Fatal(err)}
 
 	if strings.HasSuffix(notesPath, "/") {strings.TrimSuffix(notesPath, "/")}
-
 	return notesPath
 }

@@ -11,7 +11,7 @@ type sortNodesByDate []servedFile
 func (a sortNodesByDate) Len() int { return len(a) }
 func (a sortNodesByDate) Less(i, j int) bool {
 	// newest/biggest first
-	return getTimeFromStr(a[j].Date).Unix() < getTimeFromStr(a[i].Date).Unix()
+	return getTimeFromStr(a[j].Metadata["date"]).Unix() < getTimeFromStr(a[i].Metadata["date"]).Unix()
 }
 func (a sortNodesByDate) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
@@ -71,7 +71,7 @@ func ConvertToRSS(nodes []servedFile, baseUrl, title string) (rssFeed) {
 			Title:	   node.Title,
 			Link:		 baseUrl+node.MapKey,
 			//Description: node.Content,
-			PubDate:	 getTimeFromStr(node.Date).Format("Mon, 02 Jan 2006 15:04:05 GMT"),
+			PubDate:	 getTimeFromStr(node.Metadata["date"]).Format("Mon, 02 Jan 2006 15:04:05 GMT"),
 			/*Enclosure: Enclosure{
 				URL:	BaseURL + "/public/uploads/post_image/" + post.Image, // Provide the image URL for each post
 				Type:   "image/jpeg", // Specify the appropriate MIME type for the image

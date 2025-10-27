@@ -7,14 +7,9 @@ import (
 	"fmt"
 	"github.com/fsnotify/fsnotify"
 )
-
-//var watchlock bool
-
 func watchFileChanges() {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {log.Fatal(err)}
+	watcher, err := fsnotify.NewWatcher(); if err != nil {log.Fatal(err)}
 	defer watcher.Close()
-
 	// Helper function to add a directory and all its subdirectories to the watcher
 	addWatchRecursive := func(root string) error {
 		// Walk the directory tree
@@ -22,17 +17,13 @@ func watchFileChanges() {
 			if err != nil {return err}
 			if info.IsDir() {
 				err := watcher.Add(path)
-				if err != nil {
-					return fmt.Errorf("error adding directory %s to watcher: %w", path, err)
-				}
+				if err != nil { return fmt.Errorf("error adding directory %s to watcher: %w", path, err) }
 			}
 			return nil
 		})
 	}
-
 	err = addWatchRecursive(notesPath)
 	if err != nil {log.Fatalf("Failed to watch directories: %v", err)}
-
 	// Listen for events
 	for {
 		select {
@@ -40,8 +31,7 @@ func watchFileChanges() {
 			if !ok {return}
 			// If a file is modified, created, or deleted, reload the servedFiles map
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 {
-				loadTemplates()
-				loadNotesAndAttachments()
+				loadTemplates(); loadNotesAndAttachments()
 
 				// If a new directory is created, watch it
 				if event.Op&fsnotify.Create != 0 {
@@ -53,8 +43,7 @@ func watchFileChanges() {
 				}
 			}
 		case err, ok := <-watcher.Errors:
-			if !ok {return}
-			log.Println("Watcher error:", err)
+			if !ok {return}; log.Println("Watcher error:", err)
 		}
 	}
 }
