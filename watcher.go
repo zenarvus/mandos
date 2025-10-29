@@ -1,10 +1,7 @@
 package main
 
 import (
-	"os"
-	"log"
-	"path/filepath"
-	"fmt"
+	"fmt";"log";"os";"path/filepath";"strings"
 	"github.com/fsnotify/fsnotify"
 )
 func watchFileChanges() {
@@ -30,14 +27,21 @@ func watchFileChanges() {
 		case event, ok := <-watcher.Events:
 			if !ok {return}
 			// If a file is modified, created, or deleted, reload the servedFiles map
-			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 {
-				loadTemplates(); loadNotesAndAttachments()
+			// Ignore the hidden files and folders.
+			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 &&
+			!strings.HasPrefix(filepath.Base(event.Name),"."){
+				// If the file was in the templates folder of mandos.
+				if strings.HasPrefix(event.Name, filepath.Join(notesPath,getEnvValue("TEMPLATES"))){
+					loadMdTemplates();
+				// If the file was not in the templates folder.
+				}else{loadNotesAndAttachments()}
 
 				// If a new directory is created, watch it
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
-					if err == nil && info.IsDir() {
-						err = addWatchRecursive(event.Name)
+					// Do not watch the static folder, as its always public.
+					if err == nil && info.IsDir() && !strings.HasPrefix(event.Name, filepath.Join(notesPath,"static")){
+						err = addWatchRecursive(filepath.Join(notesPath,event.Name))
 						if err != nil {log.Printf("Error adding new directory to watcher: %v", err)}
 					}
 				}
