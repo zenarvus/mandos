@@ -31,7 +31,7 @@ func watchFileChanges() {
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 &&
 			!strings.HasPrefix(filepath.Base(event.Name),"."){
 				// If the file was in the templates folder of mandos.
-				if strings.HasPrefix(event.Name, filepath.Join(notesPath,getEnvValue("TEMPLATES"))){
+				if strings.HasPrefix(event.Name, getEnvValue("TEMPLATES")){
 					loadMdTemplates();
 				// If the file was not in the templates folder.
 				}else{loadNotesAndAttachments()}

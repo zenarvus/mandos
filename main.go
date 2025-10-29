@@ -1,7 +1,7 @@
 package main
 
 import (
-	"path"; "path/filepath";
+	"path"; "path/filepath"; "log"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
 )
@@ -39,7 +39,7 @@ func initRoutes(app *fiber.App){
 		// If the wanted file is markdown, parse the template and serve if its served.
 		case ".md":
 			var fileinfo Node
-			if servedNodes[urlPath].File != "" { fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true) }
+			if wNode := servedNodes[urlPath]; wNode!=nil && wNode.File != "" { fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true) }
 
 			if fileinfo.Content == "" && fileinfo.Title == "" {
 				fileinfo.Content = "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>"
@@ -56,12 +56,12 @@ func initRoutes(app *fiber.App){
 			}
 			c.Response().Header.Add("Content-Type", "text/html")
 
-			templateName := fileinfo.Metadata["template"]
-			if templateName == "" {templateName = "main.html"}
+			templateName,ok := fileinfo.Metadata["template"].(string)
+			if !ok || templateName == "" {templateName = "main.html"}
 			// Render the template
 			if mdTemplates[templateName] != nil {
 				err := mdTemplates[templateName].Execute(c.Response().BodyWriter(), templateValues)
-				if err != nil {return c.Status(500).SendString("An error occurred while executing the template: "+err.Error())}
+				if err!=nil {log.Println(err)}
 				return nil
 			}else{return c.SendString("No template found")}
 		
@@ -75,7 +75,7 @@ func initRoutes(app *fiber.App){
 					tmpl,err := readTemplateFile(path.Join(notesPath, urlPath), urlPath)
 					if err!=nil{return c.Status(500).SendString("An error occurred while parsing the template: "+err.Error())}
 					err = tmpl.Execute(c.Response().BodyWriter(),map[string]any{})
-					if err != nil {return c.Status(500).SendString("An error occurred while executing the template: "+err.Error())}
+					if err!=nil{log.Println(err)}
 					return nil
 				}
 				// Else, send the file directly.

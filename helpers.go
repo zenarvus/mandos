@@ -1,19 +1,19 @@
 package main
 
 import (
-	"bytes"; "errors"; "fmt"; "io"; "io/fs"
-	"log"; "os"; "path"; "path/filepath"; "regexp"
-	"sort"; "strings"; "text/template"
-	templater "text/template"; "time"
-
-	"github.com/mdigger/goldmark-attributes"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"strings"
+	templater "text/template"
+	"time"
 	"github.com/pelletier/go-toml/v2"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/parser"
-	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
-	"github.com/zenarvus/goldmark-bettermedia"
-	"github.com/zenarvus/goldmark-mathjax"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +25,7 @@ type Node struct {
 	File string // Absolute file location, considering notesPath as root. It is the same value with the key of the node in the servedNodes map.
 	Title string // The last H1 heading or the "title" metadata field.
 	Content string // Raw markdown content
-	Metadata map[string]string // Metadata part
+	Metadata map[string]any // Metadata part
 	OutLinks []string // The list of nodes this node links to. (Their .File values)
 	InLinks []string //The list of nodes contains a link to this node. (Their .File values)
 }
@@ -35,54 +35,7 @@ var servedAttachments = make(map[string]bool)
 func addNode(item *Node) {nodeList = append(nodeList, item); servedNodes[item.File] = item}
 func cleanNodes(){servedNodes = make(map[string]*Node); nodeList=[]*Node{}}
 
-var htmlConverter = goldmark.New(
-	attributes.Enable,
-	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, bettermedia.BetterMedia),
-	goldmark.WithParserOptions(parser.WithAttribute()),
-	goldmark.WithRendererOptions(goldmarkHtml.WithHardWraps(), goldmarkHtml.WithXHTML(), goldmarkHtml.WithUnsafe()),
-)
-func ToHtml(mdText string) string {
-	var html bytes.Buffer
-	if err := htmlConverter.Convert([]byte(mdText), &html); err != nil {log.Fatal(err)}
-	return html.String()
-}
-func ListNodes() []*Node {return nodeList}
-
-//Time format should be yyyy-mm-dd
-func FormatTimeStr(timeStr string, targetFormat string) (string) {
-	timeStr = strings.ReplaceAll(timeStr, "/", "-")
-	formats := []string{"2006-01-02","02-01-2006"}
-	var parsedTime time.Time; var err error
-	for _, format := range formats {
-		parsedTime, err = time.Parse(format, timeStr)
-		/*Return if parsing succeeds*/
-		if err == nil {return parsedTime.Format(targetFormat)}
-	}
-	return ""
-}
-func SortNodesByDate(nodes []*Node) []*Node {
-    dup := append([]*Node(nil), nodes...) // copy
-    sort.SliceStable(dup, func(i, j int) bool {
-        si := FormatTimeStr(dup[i].Metadata["date"], "20060102")
-        sj := FormatTimeStr(dup[j].Metadata["date"], "20060102")
-        // empty => oldest (put at end)
-        if si == "" && sj == "" { return i < j } // stable fallback
-        if si == "" { return false } // i is older => after j
-        if sj == "" { return true }  // i is newer => before j
-        return si > sj // newest first
-    })
-    return dup
-}
-
 var mdTemplates = make(map[string]*templater.Template)
-var templateFuncs = template.FuncMap{
-	"ToHtml": ToHtml,
-	"ListNodes": ListNodes,
-	"SortNodesByDate": SortNodesByDate,
-	"FormatTimeStr": FormatTimeStr,
-	"Add":func(x,y int)int{return x+y}, "Sub":func(x,y int)int{return x-y},
-	"ReplaceStr": strings.ReplaceAll,
-}
 //initialize the template file
 func loadMdTemplates(){
 	mdTemplates = make(map[string]*templater.Template)
@@ -101,11 +54,12 @@ func readTemplateFile(path, name string) (*templater.Template, error) {
 	tmplContent, err := os.ReadFile(path)
 	if err != nil {log.Fatal(err)}
 	template, err := templater.New(name).Funcs(templateFuncs).Parse(string(tmplContent))
+	if err != nil{log.Println(err)}
 	return template, err
 }
 
-func inServedCategory(metadataPublicField string) bool {
-	if onlyPublic=="no" || metadataPublicField=="true" {return true}; return false
+func inServedCategory(metadataPublicField bool) bool {
+	if onlyPublic=="no" || metadataPublicField==true {return true}; return false
 }
 
 //extract non-markdown links from markdown's content
@@ -136,7 +90,8 @@ func loadNotesAndAttachments() {
 		if !d.IsDir() && strings.HasSuffix(fileName, ".md") && !strings.HasPrefix(fileName,".") {
 			fileinfo, err := getFileInfo(npath, true)
 			if err != nil {return err}
-			if inServedCategory(fileinfo.Metadata["public"]) {
+			mPublic, ok := fileinfo.Metadata["public"].(bool)
+			if ok && inServedCategory(mPublic) {
 				addNode(&Node{
 					File: strings.TrimPrefix(npath, notesPath),
 					Title: fileinfo.Title, Metadata: fileinfo.Metadata, OutLinks: fileinfo.OutLinks,
@@ -211,13 +166,19 @@ func getFileInfo(filename string, includeConns bool) (fileinfo Node, err error) 
 			case "toml":
 				err = toml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
 				if err != nil {return fileinfo, errors.New(filename+": "+err.Error())}
+				if tomlDate,ok := fileinfo.Metadata["date"].(toml.LocalDate); ok {
+					fileinfo.Metadata["date"]=tomlDate.String()
+				}
 			case "yaml":
 				err = yaml.Unmarshal([]byte(metadataString), &fileinfo.Metadata)
 				if err != nil {return fileinfo, errors.New(filename+": "+err.Error())}
+				if yamlDate,ok := fileinfo.Metadata["date"].(time.Time); ok {
+					fileinfo.Metadata["date"]=yamlDate.Format("2006-01-02")
+				}
 			}
 		}
 		//Prefer the metadata title over the first header
-		if fileinfo.Metadata["title"] != "" { fileinfo.Title = fileinfo.Metadata["title"] }
+		if mTitle,ok := fileinfo.Metadata["title"].(string); ok && mTitle != "" { fileinfo.Title = mTitle }
 
 		return fileinfo, nil  
 	}
@@ -244,12 +205,12 @@ func getEnvValue(key string)string{
 	if os.Getenv(key) != "" {return os.Getenv(key)}
 	// If no value is assigned to the environment variable, use the default one or give an error.
 	switch key {
+	case "MD_FOLDER": log.Fatal(fmt.Errorf("Please specify markdown folder path with MD_FOLDER environment variable."))
+	case "INDEX": log.Fatal(fmt.Errorf("Please specify index file using INDEX environment variable"))
 	case "PORT": return "9700"
 	case "ONLY_PUBLIC": return "no"
 	//The location of the templates. Relative to the MD_FOLDER. Default is mandos.
 	case "TEMPLATES": return path.Join(getNotesPath(), "mandos")
-	case "MD_FOLDER": log.Fatal(fmt.Errorf("Please specify markdown folder path with MD_FOLDER environment variable."))
-	case "INDEX": log.Fatal(fmt.Errorf("Please specify index file using INDEX environment variable"))
 	}
 	return ""
 }
