@@ -58,7 +58,7 @@ You need to create a folder named `static` at the root of your Markdown folder.
 - You can use JavaScript in your Markdown files. It's supported.
 - All non-Markdown file links in a public node are also made public.
 - The server ignores the hidden files and folders (the ones with a dot at the start)
-- You can place template codes inside `.xml` and `.json` files that are outside of the `static` folder. However,
+- You can place template codes inside `.xml` and `.json` files that are outside of the `static` folder.
 
 Here is an example node-list.json file to create a node list in json format. It allows you to create [cool graphs](http://zenarvus.com/graph.md) like the ones in Obsidian.
 ```
