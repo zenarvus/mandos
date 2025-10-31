@@ -90,8 +90,8 @@ func loadNotesAndAttachments() {
 		if !d.IsDir() && strings.HasSuffix(fileName, ".md") && !strings.HasPrefix(fileName,".") {
 			fileinfo, err := getFileInfo(npath, true)
 			if err != nil {return err}
-			mPublic, ok := fileinfo.Metadata["public"].(bool)
-			if ok && inServedCategory(mPublic) {
+			mPublic, _ := fileinfo.Metadata["public"].(bool)
+			if inServedCategory(mPublic) {
 				addNode(&Node{
 					File: strings.TrimPrefix(npath, notesPath),
 					Title: fileinfo.Title, Metadata: fileinfo.Metadata, OutLinks: fileinfo.OutLinks,
