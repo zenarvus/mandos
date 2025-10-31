@@ -12,11 +12,11 @@ func watchFileChanges() {
 	// This code implements a debounce: it schedules a function to run 5 seconds after the last call to scheduleLoad. Repeated calls within the 5s window reset the timer so only the final call's handler runs.
 	scheduleLoad := func(run func(), debounceTimer **time.Timer, debounceMu chan struct{}) {
 		// ensure only one goroutine manipulates timer at a time
-		fmt.Println("A function execution request has been made.")
+		//fmt.Println("A function execution request has been made.")
 		debounceMu <- struct{}{}
 		if *debounceTimer != nil {(*debounceTimer).Stop()}
 		*debounceTimer = time.AfterFunc(5 * time.Second, func() {
-			fmt.Println("Only this will be handled")
+			//fmt.Println("Only this will be handled")
 			run()
 		})
 		<-debounceMu
