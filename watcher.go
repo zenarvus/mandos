@@ -1,10 +1,27 @@
 package main
 
 import (
-	"fmt";"log";"os";"path/filepath";"strings"
+	"fmt";"log";"os";"path/filepath";"strings";"time"
 	"github.com/fsnotify/fsnotify"
 )
 func watchFileChanges() {
+	var tReloadDebounceTimer *time.Timer // For template re-loading
+	tDebounceMu := make(chan struct{}, 1) // simple mutex to avoid races
+	var nReloadDebounceTimer *time.Timer // For node and attachment reloading.
+	nDebounceMu := make(chan struct{}, 1)
+	// This code implements a debounce: it schedules a function to run 5 seconds after the last call to scheduleLoad. Repeated calls within the 5s window reset the timer so only the final call's handler runs.
+	scheduleLoad := func(run func(), debounceTimer **time.Timer, debounceMu chan struct{}) {
+		// ensure only one goroutine manipulates timer at a time
+		fmt.Println("A function execution request has been made.")
+		debounceMu <- struct{}{}
+		if *debounceTimer != nil {(*debounceTimer).Stop()}
+		*debounceTimer = time.AfterFunc(5 * time.Second, func() {
+			fmt.Println("Only this will be handled")
+			run()
+		})
+		<-debounceMu
+	}
+
 	watcher, err := fsnotify.NewWatcher(); if err != nil {log.Fatal(err)}
 	defer watcher.Close()
 	// Helper function to add a directory and all its subdirectories to the watcher
@@ -32,9 +49,9 @@ func watchFileChanges() {
 			!strings.HasPrefix(filepath.Base(event.Name),"."){
 				// If the file was in the templates folder of mandos.
 				if strings.HasPrefix(event.Name, getEnvValue("TEMPLATES")){
-					loadMdTemplates();
+					scheduleLoad(loadMdTemplates, &tReloadDebounceTimer, tDebounceMu)
 				// If the file was not in the templates folder.
-				}else{loadNotesAndAttachments()}
+				}else{scheduleLoad(loadNotesAndAttachments, &nReloadDebounceTimer, nDebounceMu)}
 
 				// If a new directory is created, watch it
 				if event.Op&fsnotify.Create != 0 {

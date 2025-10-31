@@ -61,6 +61,7 @@ MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=yes TEMPLATES=/pat
 
 ## Additional Tips
 - Metadata field must be at the top of your markdown file. Its syntax is similar to Hugo's. Place fields inside `+++` for `toml` and `---` for `yaml` metadata.
+- After a file is created, updated or deleted, the change in the server side may take 5 seconds. Reloading nodes and attachments are somewhat an expensive operation and this time delay ensures only the last change will reload the nodes when bulk changes are made.
 - You can use JavaScript in your Markdown files. It's supported.
 - All non-Markdown file links in a public file also made public.
 - The server ignores the hidden files and folders (the ones with a dot at the start)
