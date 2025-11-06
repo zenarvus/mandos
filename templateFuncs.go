@@ -10,7 +10,6 @@ var templateFuncs = template.FuncMap{
 	"ToHtml": ToHtml, "ListNodes": ListNodes, "SortNodesByDate": SortNodesByDate,
 	"ReplaceStr": strings.ReplaceAll, "Contains": strings.Contains,
 }
-var goldmarkHeadingIdContext = parser.NewContext(parser.WithIDs(headingid.NewIDs()))
 var htmlConverter = goldmark.New(
 	attributes.Enable,
 	goldmark.WithExtensions(extension.GFM, extension.Footnote, mathjax.MathJax, bettermedia.BetterMedia),
@@ -19,7 +18,7 @@ var htmlConverter = goldmark.New(
 )
 func ToHtml(mdText string) string {
 	var html bytes.Buffer
-	if err := htmlConverter.Convert([]byte(mdText), &html, parser.WithContext(goldmarkHeadingIdContext)); err != nil {log.Fatal(err)}
+	if err := htmlConverter.Convert([]byte(mdText), &html, parser.WithContext(parser.NewContext(parser.WithIDs(headingid.NewIDs())))); err != nil {log.Fatal(err)}
 	return html.String()
 }
 func ListNodes() []*Node {return nodeList}
