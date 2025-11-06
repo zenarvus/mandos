@@ -8,6 +8,7 @@ require (
 	github.com/mdigger/goldmark-attributes v0.0.0-20210529130523-52da21a6bf2b
 	github.com/yuin/goldmark v1.7.13
 	github.com/zenarvus/goldmark-bettermedia v0.0.0-20251027164908-a7a4869f71d3
+	github.com/zenarvus/goldmark-headingid v0.0.0-20251106094144-dd884481d924
 	github.com/zenarvus/goldmark-mathjax v0.0.0-20251016143638-b6040e338455
 	gopkg.in/yaml.v3 v3.0.1
 )
