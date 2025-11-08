@@ -9,7 +9,7 @@ var notesPath = getNotesPath() //it does not and should not have a slash suffix.
 var onlyPublic = getEnvValue("ONLY_PUBLIC")
 var indexPage = getEnvValue("INDEX")
 type Node struct {
-	File string // Absolute file location, considering notesPath as root. It is the same value with the key of the node in the servedNodes map.
+	File string // Absolute file location, considering notesPath as root. It is the same value with the key of the node in the servedNodes map. It is not set in the struct returned by getFileInfo.
 	Title string // The first H1 heading or the "title" metadata field.
 	Date time.Time // the date metadata field.
 	Tags []string // The value of the tags metadata field.
@@ -19,11 +19,9 @@ type Node struct {
 	InLinks []string //The list of nodes contains a link to this node. (Their .File values)
 	Attachments []string // Local non-markdown links in a node.
 }
-var nodeList []*Node
 var servedNodes = make(map[string]*Node)
-var servedAttachments = make(map[string]bool)
-func addNode(item *Node) {nodeList = append(nodeList, item); servedNodes[item.File] = item}
-func cleanNodes(){servedNodes = make(map[string]*Node); nodeList=[]*Node{}}
+// The value is how many inlinks does that attachment have?
+var servedAttachments = make(map[string]int)
 
 var mdTemplates = make(map[string]*templater.Template)
 var soloTemplates = make(map[string]*templater.Template)
@@ -36,28 +34,39 @@ func loadTemplates(tType string){
 		files, err := os.ReadDir(templatesPath); if err != nil {log.Fatal(err)}
 		for _, file := range files {
 			if !file.IsDir() { 
-				t,err := readTemplateFile(path.Join(templatesPath, file.Name()), file.Name())
-				if err!=nil {log.Println(err)} else {mdTemplates[file.Name()] = t}
+				relPath := strings.TrimPrefix(path.Join(templatesPath, file.Name()), notesPath)
+				t,err := readTemplateFile(relPath)
+				if err!=nil {log.Println(err)} else {mdTemplates[relPath] = t}
 			}
 		}
+		log.Println("Markdown templates are loaded:", len(mdTemplates))
 	case "solo":
 		filesStr:=getEnvValue("SOLO_TEMPLATES"); if filesStr==""{return}
-		for _,file := range strings.Split(filesStr,",") {
-			file = filepath.Join("/",file); t,err:=readTemplateFile(path.Join(notesPath,file), file)
-			if err!=nil{log.Println(err)} else {soloTemplates[file]=t}
+		for _,relPath := range strings.Split(filesStr,",") {
+			relPath = filepath.Join("/",relPath); t,err:=readTemplateFile(relPath)
+			if err!=nil{log.Println(err)} else {soloTemplates[relPath]=t}
 		}
+		log.Println("Solo templates are loaded:", len(soloTemplates))
 	}
 }
-func readTemplateFile(path, name string) (*templater.Template, error) {
-	tmplContent, err := os.ReadFile(path); if err != nil {log.Fatal(err)}
-	template, err := templater.New(name).Funcs(templateFuncs).Parse(string(tmplContent)); if err != nil{log.Println(err)}
+func readTemplateFile(relPath string) (*templater.Template, error) {
+	tmplContent, err := os.ReadFile(filepath.Join(notesPath,relPath)); if err != nil {log.Fatal(err)}
+	template, err := templater.New(relPath).Funcs(templateFuncs).Parse(string(tmplContent)); if err != nil{log.Fatal(err)}
 	return template, err
+}
+func loadTemplate(relPath, tType string) {
+	tmpl, err := readTemplateFile(relPath)
+	if err != nil {log.Fatal(err)}
+	switch tType {
+	case "md": mdTemplates[relPath]=tmpl
+	case "solo": soloTemplates[relPath]=tmpl
+	}
 }
 
 func inServedCategory(publicField bool)bool{return onlyPublic=="no" || publicField==true}
 
 func loadNotesAndAttachments() {
-	cleanNodes(); servedAttachments = make(map[string]bool)
+	servedNodes = make(map[string]*Node); servedAttachments = make(map[string]int)
 	err := filepath.WalkDir(notesPath, func(npath string, d fs.DirEntry, err error) error {
 		if err != nil {return err}
 		fileName := filepath.Base(d.Name())
@@ -67,13 +76,81 @@ func loadNotesAndAttachments() {
 			mPublic, _ := fileinfo.Params["public"].(bool)
 			if inServedCategory(mPublic) {
 				fileinfo.File=strings.TrimPrefix(npath, notesPath); fileinfo.Content=""
-				addNode(&fileinfo)
+				servedNodes[fileinfo.File] = &fileinfo
 			}
 		}
 		return nil
 	})
 	if err != nil {fmt.Println("Error walking the path:", err)}
 	SetInLinks()
+	log.Println("Nodes are loaded:",len(servedNodes))
+	log.Println("Attachments are loaded:",len(servedAttachments))
+}
+func loadNode(relPath string){
+	absPath := filepath.Join(notesPath,relPath)
+	nodeInfo,err := getFileInfo(absPath, true); if err != nil {log.Println("Error while reloading the node: ",err.Error())}
+	nodeInfo.File=relPath; nodeInfo.Content=""
+
+	mPublic, _ := nodeInfo.Params["public"].(bool)
+	if !inServedCategory(mPublic) {return}
+
+	// Set the inlinks of this node, made from other nodes.
+	// This is very slow as we have to look for every node's outlinks in the map.
+	// Consider creating a separate map for inlinks. The keys should be the each item in the outlinks of the each node.
+	// Maybe I can use a number instead? It would be faster I guess. But then, I would have a hard time while trying to remove this node from other nodes' outlinks. Because I would not know which nodes have a link to this node without iterating them.
+	var newInlinkArr []string
+	for _, fnode := range servedNodes {
+		if fnode.File != relPath {
+			for _, outLink := range fnode.OutLinks {
+				if outLink == relPath {
+					newInlinkArr = append(newInlinkArr, fnode.File)
+				}
+			}
+		}
+	}
+	nodeInfo.InLinks = newInlinkArr
+	servedNodes[relPath]=&nodeInfo
+
+	// Set the inlinks of other nodes, made from this node to them (because it can change when we update this node)
+	for _, outlink := range nodeInfo.OutLinks {
+		var alreadyContainsInlink bool
+		otherNode,ok := servedNodes[outlink]
+		if !ok || otherNode == nil {continue}
+
+		for _,inlink := range otherNode.InLinks {
+			if inlink==relPath {alreadyContainsInlink = true}
+		}
+		if !alreadyContainsInlink { otherNode.InLinks = append(otherNode.InLinks, nodeInfo.File) }
+	}
+}
+func removeNode(relPath string) {
+	node := servedNodes[relPath]
+	// Delete the attachments if only one node (this one) has a link to them.
+	for _,attachment := range node.Attachments {
+		if servedAttachments[attachment] <= 1 {delete(servedAttachments, attachment)}
+	}
+	// Remove this node from the inlinks of other nodes.
+	for _,outlink := range node.OutLinks {
+		newInlinkArr := []string{}
+		otherNode, ok := servedNodes[outlink]
+        if !ok || otherNode == nil {continue}
+		for _,inlink := range otherNode.InLinks {
+			if inlink != node.File {newInlinkArr = append(newInlinkArr, inlink)}
+		}
+		otherNode.InLinks = newInlinkArr
+	}
+
+	// Remove this node from other nodes' outlinks.
+	for _,inlink := range node.InLinks {
+		newOutlinkArr := []string{}
+		otherNode, ok := servedNodes[inlink]
+		if !ok || otherNode == nil {continue}
+		for _,outlink := range otherNode.OutLinks {
+			if outlink != node.File {newOutlinkArr = append(newOutlinkArr, outlink)}
+		}
+		otherNode.OutLinks=newOutlinkArr
+	}
+	delete(servedNodes, relPath)
 }
 
 func getFileInfo(filename string, includeConns bool) (fileinfo Node, err error) {
@@ -117,8 +194,8 @@ func getFileInfo(filename string, includeConns bool) (fileinfo Node, err error) 
 					if !tLinks[linkLocation] {
 						// If its a markdown file, add to the outlinks
 						if strings.HasSuffix(linkLocation,".md"){fileinfo.OutLinks=append(fileinfo.OutLinks,linkLocation)
-						// If its not a markdown file, add to the served attachments
-						}else{servedAttachments[linkLocation]=true}
+						// If its not a markdown file, add to the served attachments or increase its inlink count.
+						}else{servedAttachments[linkLocation]++}
 					}
 					tLinks[linkLocation]=true
 				}
@@ -141,7 +218,7 @@ func getFileInfo(filename string, includeConns bool) (fileinfo Node, err error) 
 	return Node{},err
 }
 func SetInLinks(){
-	for _, fnode := range nodeList {
+	for _, fnode := range servedNodes {
 		for _, outLink := range fnode.OutLinks {
 			// If outLink of the fnode exists in the served files
 			if updatedStruct, ok := servedNodes[outLink]; ok && updatedStruct.File != "" {
@@ -158,7 +235,7 @@ func getEnvValue(key string)string{
 	// If no value is assigned to the environment variable, use the default one or give an error.
 	switch key {
 	case "MD_FOLDER": log.Fatal(fmt.Errorf("Please specify markdown folder path with MD_FOLDER environment variable."))
-	case "INDEX": log.Fatal(fmt.Errorf("Please specify index file using INDEX environment variable"))
+	case "INDEX": return "index.md"
 	case "PORT": return "9700"
 	case "ONLY_PUBLIC": return "no"
 	//The location of the templates. Relative to the MD_FOLDER. Default is mandos.

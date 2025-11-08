@@ -1,22 +1,29 @@
 package main
 import ("fmt";"log";"os";"path/filepath";"strings";"time"; "github.com/fsnotify/fsnotify")
+
+var waitTime = time.Millisecond * 300
+var debounceMutex = make(chan struct{}, 1)
+// To debounce per file. (Because watcher can detect two or more separate events on the same file.)
+var debounceTimer = make(map[string]*time.Timer)
+
+func scheduleLoad(path string, run func()){
+	debounceMutex <- struct{}{}
+	defer func() { <-debounceMutex }()
+	//fmt.Println("A scheduleLoad request has been made")
+
+	if t := debounceTimer[path]; t != nil {t.Stop()}
+	timer := time.AfterFunc(waitTime, func() {
+		debounceMutex <- struct{}{}
+		//fmt.Println("Only this will be handled")
+		delete(debounceTimer, path)
+		run()
+		<-debounceMutex
+	})
+	debounceTimer[path]=timer
+}
+
 func watchFileChanges() {
-	var tReloadDebounceTimer *time.Timer // For template re-loading
-	tDebounceMu := make(chan struct{}, 1) // simple mutex to avoid races
-	var nReloadDebounceTimer *time.Timer // For node and attachment reloading.
-	nDebounceMu := make(chan struct{}, 1)
-	// This code implements a debounce: it schedules a function to run 5 seconds after the last call to scheduleLoad. Repeated calls within the 5s window reset the timer so only the final call's handler runs.
-	scheduleLoad := func(run func(), debounceTimer **time.Timer, debounceMu chan struct{}) {
-		// ensure only one goroutine manipulates timer at a time
-		//fmt.Println("A function execution request has been made.")
-		debounceMu <- struct{}{}
-		if *debounceTimer != nil {(*debounceTimer).Stop()}
-		*debounceTimer = time.AfterFunc(5 * time.Second, func() {
-			//fmt.Println("Only this will be handled")
-			run()
-		})
-		<-debounceMu
-	}
+	log.Println("Watching for file changes.")
 	watcher, err := fsnotify.NewWatcher(); if err != nil {log.Fatal(err)}
 	defer watcher.Close()
 	// Helper function to add a directory and all its subdirectories to the watcher
@@ -39,22 +46,43 @@ func watchFileChanges() {
 			// Ignore the hidden files and folders.
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove) != 0 &&
 			!strings.HasPrefix(filepath.Base(event.Name),"."){
+				relPath := strings.TrimPrefix(event.Name, notesPath)
+				// If the file was a markdown note
+				if strings.HasSuffix(event.Name, ".md") {
+
+					if event.Has(fsnotify.Remove) {
+						scheduleLoad(event.Name, func(){
+							removeNode(relPath)
+							log.Println("A node has been deleted: ",relPath)
+						})
+					}else if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
+						scheduleLoad(event.Name, func() {
+							loadNode(relPath)
+							log.Println("A node has been updated: ",relPath)
+						})
+					}
+
 				// If the file was in the templates folder of mandos.
-				if strings.HasPrefix(event.Name, getEnvValue("MD_TEMPLATES")){
-					scheduleLoad(func(){loadTemplates("md")}, &tReloadDebounceTimer, tDebounceMu)
-				// If the file was not in the templates folder.
-				}else{scheduleLoad(func(){
-					// Reload solo templates if the changed file was a solo template.
-					if soloTemplates[strings.TrimSuffix(strings.TrimPrefix(event.Name,notesPath),"~")] != nil{
-						loadTemplates("solo");
-					}else{loadNotesAndAttachments();}
-				}, &nReloadDebounceTimer, nDebounceMu)}
+				}else if mdTemplates[relPath] != nil{
+					scheduleLoad(event.Name,func(){
+						loadTemplate(relPath,"md")
+						log.Println("A template has been reloaded: ",relPath)
+					})
+
+				// Reload solo templates if the changed file was a solo template.
+				}else if soloTemplates[relPath] != nil{
+					scheduleLoad(event.Name,func(){
+						loadTemplate(relPath,"solo")
+						log.Println("A template has been reloaded: ",relPath)
+					})
+				}
+
 				// If a new directory is created, watch it
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
 					// Do not watch the static folder, as its always public.
 					if err == nil && info.IsDir() && !strings.HasPrefix(event.Name, filepath.Join(notesPath,"static")){
-						err = addWatchRecursive(filepath.Join(notesPath,event.Name))
+						err = addWatchRecursive(filepath.Join(notesPath,relPath))
 						if err != nil {log.Printf("Error adding new directory to watcher: %v", err)}
 					}
 				}

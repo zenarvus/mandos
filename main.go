@@ -2,8 +2,12 @@ package main
 import ("log"; "mime"; "path"; "path/filepath"; "github.com/gofiber/fiber/v2"; "github.com/gofiber/fiber/v2/middleware/compress")
 
 func main() {
+	log.Print("Folder:",notesPath)
+	log.Println("Index:", indexPage)
 	loadTemplates("md"); loadTemplates("solo"); loadNotesAndAttachments(); go watchFileChanges()
-	app := fiber.New(); initRoutes(app)
+	app := fiber.New(fiber.Config{DisableStartupMessage:true}); initRoutes(app)
+
+	log.Println("Server is started on port", getEnvValue("PORT"))
 	certFile:=getEnvValue("CERT"); keyFile:=getEnvValue("KEY")
 	if certFile=="" || keyFile=="" {err := app.Listen(":"+getEnvValue("PORT")); if err!=nil{panic(err)}
 	}else{err := app.ListenTLS(":"+getEnvValue("PORT"),certFile,keyFile); if err!=nil{panic(err)}}
@@ -37,14 +41,15 @@ func initRoutes(app *fiber.App){
 
 			templateName,ok := fileinfo.Params["template"].(string)
 			if !ok || templateName == "" {templateName = "main.html"}
+			templateRelPath := filepath.Join("/mandos/",templateName)
 			// Render the template
-			if mdTemplates[templateName] != nil {
-				err := mdTemplates[templateName].Execute(c.Response().BodyWriter(), fileinfo)
+			if mdTemplates[templateRelPath] != nil {
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), fileinfo)
 				if err!=nil {log.Println(err)}; return nil
 			}else{return c.SendString("No template found")}
 		// If the wanted file is not markdown
 		default:
-			if servedAttachments[urlPath] {
+			if servedAttachments[urlPath] != 0 {
 				// If the file is a solo template
 				if soloTemplates[urlPath] != nil{
 					c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))

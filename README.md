@@ -47,7 +47,7 @@ You need to create a folder named `static` at the root of your Markdown folder.
 MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json go -C /path/to/mandos run .
 ```
 
-- `INDEX=index.md`: The file to be served at the root path of the server (`/`).
+- `INDEX=index.md`: The file to be served at the root path of the server (`/`). The default is `index.md`
 - `ONLY_PUBLIC=no`: Serve the every markdown file in the directory and consider all of them as `public`. Remove it if you just want to serve the `public` nodes.
     - A markdown file is considered public if its `public` metadata field is set to `true`.
     - Every non-markdown file a public markdown file links to will also be served.
@@ -139,7 +139,6 @@ And here is an example `rss.xml` file to create an RSS feed.
 ```
 
 ## Additional Tips
-- After a file is created, updated or deleted, the change in the server side may take 5 seconds. Reloading nodes and attachments are somewhat an expensive operation and this time delay ensures only the last change will reload the nodes when bulk changes are made.
 - You can use JavaScript in your Markdown files like in a HTML file.
 - The server ignores the hidden markdown files (the ones with a dot at the start.)
 - You can exclude a line in `ONLY_PUBLIC=yes` (default) mode by placing a `<!--exc-->` in the line.

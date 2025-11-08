@@ -21,14 +21,19 @@ func ToHtml(mdText string) string {
 	if err := htmlConverter.Convert([]byte(mdText), &html, parser.WithContext(parser.NewContext(parser.WithIDs(headingid.NewIDs())))); err != nil {log.Fatal(err)}
 	return html.String()
 }
-func ListNodes() []*Node {return nodeList}
+func ListNodes() []*Node {
+	nodes := make([]*Node, 0, len(servedNodes))
+	for _, n := range servedNodes {
+		if n != nil {nodes = append(nodes, n)}
+	}
+	return nodes
+}
 func SortNodesByDate(nodes []*Node) []*Node {
-    dup := append([]*Node(nil), nodes...)
-	sort.SliceStable(dup, func(i, j int) bool {
-		a, b := dup[i].Date, dup[j].Date; ai, bj := a.IsZero(), b.IsZero()
+	sort.SliceStable(nodes, func(i, j int) bool {
+		a, b := nodes[i].Date, nodes[j].Date; ai, bj := a.IsZero(), b.IsZero()
 		if ai != bj {return !ai && bj} /*non-zero before zero*/
 		if a.Equal(b) {return false}
 		return a.After(b)
 	})
-    return dup
+    return nodes
 }
