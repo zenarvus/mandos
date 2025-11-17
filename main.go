@@ -1,11 +1,14 @@
 package main
-import ("log"; "mime"; "path"; "path/filepath"; "github.com/gofiber/fiber/v2"; "github.com/gofiber/fiber/v2/middleware/compress")
+import ("log"; "runtime"; "mime"; "path"; "path/filepath"; "github.com/gofiber/fiber/v2"; "github.com/gofiber/fiber/v2/middleware/compress")
 
 func main() {
 	log.Print("Folder:",notesPath)
 	log.Println("Index:", indexPage)
-	loadTemplates("md"); loadTemplates("solo"); loadNotesAndAttachments(); go watchFileChanges()
+	loadAllTemplates("md"); loadAllTemplates("solo"); loadAllNodes(); go watchFileChanges()
 	app := fiber.New(fiber.Config{DisableStartupMessage:true}); initRoutes(app)
+
+	var m runtime.MemStats; runtime.ReadMemStats(&m)
+	log.Printf("Memory Used: %.2f MiB", float64(m.Sys)/1024/1024)
 
 	log.Println("Server is started on port", getEnvValue("PORT"))
 	certFile:=getEnvValue("CERT"); keyFile:=getEnvValue("KEY")
@@ -23,6 +26,9 @@ func initRoutes(app *fiber.App){
 		},
 		Level: compress.LevelBestSpeed, // 1
 	}))
+
+	type PageVars struct { UrlPath string; *Node }
+
 	//Only markdown files with public: true metadata and their previewed attachments are served
 	app.Get("/*", func(c *fiber.Ctx) error {
 		urlPath := "/"+c.Params("*"); if urlPath=="/"{urlPath += indexPage}; ext := filepath.Ext(urlPath)
@@ -30,21 +36,23 @@ func initRoutes(app *fiber.App){
 		switch ext {
 		// If the wanted file is markdown, parse the template and serve if its served.
 		case ".md":
-			var fileinfo Node
-			if wNode:=servedNodes[urlPath]; wNode!=nil && wNode.File!=""{ fileinfo, _ = getFileInfo(path.Join(notesPath,urlPath),true) }
-
-			if fileinfo.Content == "" && fileinfo.Title == "" {
-				fileinfo.Content = "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>"
-				fileinfo.Title = "404 Not Found"
+			var nodeinfo,_ = getNodeInfo(path.Join(notesPath,urlPath), false)
+			if !isServed(nodeinfo.Public) || nodeinfo.Content==""{
+				nodeinfo = Node{
+					Content: "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>",
+					Title: "404 Not Found",
+				}
 			}
+			if sNode:=servedNodes[urlPath]; sNode!=nil && sNode.File!=""{ nodeinfo.InLinks = sNode.InLinks }
+
 			c.Response().Header.Add("Content-Type", "text/html")
 
-			templateName,ok := fileinfo.Params["template"].(string)
+			templateName,ok := nodeinfo.Params["template"].(string)
 			if !ok || templateName == "" {templateName = "main.html"}
 			templateRelPath := filepath.Join("/mandos/",templateName)
 			// Render the template
 			if mdTemplates[templateRelPath] != nil {
-				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), fileinfo)
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{UrlPath: c.OriginalURL(), Node: &nodeinfo})
 				if err!=nil {log.Println(err)}; return nil
 			}else{return c.SendString("No template found")}
 		// If the wanted file is not markdown
@@ -53,7 +61,7 @@ func initRoutes(app *fiber.App){
 				// If the file is a solo template
 				if soloTemplates[urlPath] != nil{
 					c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))
-					err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), map[string]string{})
+					err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{UrlPath: c.OriginalURL()})
 					if err!=nil {log.Println(err)}; return nil
 				}
 				// Else, send the file directly.

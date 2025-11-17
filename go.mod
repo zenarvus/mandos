@@ -5,6 +5,7 @@ go 1.24.7
 require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofiber/fiber/v2 v2.52.5
+	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/mdigger/goldmark-attributes v0.0.0-20210529130523-52da21a6bf2b
 	github.com/yuin/goldmark v1.7.13
 	github.com/zenarvus/goldmark-bettermedia v0.0.0-20251027164908-a7a4869f71d3

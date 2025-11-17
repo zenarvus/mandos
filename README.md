@@ -58,19 +58,23 @@ MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/p
 > If you want to run the server with TLS encryption, you can use the `CERT` and `KEY` environment variables and pass the respective file paths to them.
 
 ## Template Functions And Variables
-There are some variables and functions you can use inside a template. If it's a Markdown template, there are 9 basic variables you can use:
+There are some variables and functions you can use inside a template. If it's a Markdown template, there are 10 basic variables you can use:
 
 - `{{.Params}}`: The metadata part of the file, excluding the title, date and the tags. You can use `{{index .Params "key"}}` to access a value in it. `(map[string]any)`
 - `{{.File}}`: The path of the markdown file, considering the `MD_FOLDER` as root. `(string)`
-- `{{.Title}}`: The first H1 heading of the Markdown file or the `title` field in the document's metadata. `(string)`
+- `{{.Title}}`: The last H1 heading of the Markdown file, or the `title` field in the document's metadata. `(string)`
 - `{{.Date}}`: The date of the time aware node. You can make a node time-aware by adding a `date` field in its metadata with a value formatted as `yyyy-mm-dd`. `(time.Time)`
     - You can use `{{.Date.Format "format"}}` to convert it to any format you want.
     - Also you can check if the `.Date` field exists by using `{{if not .Date.IsZero}}...{{end}}`
-- `{{.Tags}}`: The tags of a markdown file. To add a tag to a markdown file You can set a list of keywords in the `tags` metadata field. `([]string)`
+- `{{.Tags}}`: The tags of a markdown file. Include them in the `tags` metadata field as a YAML array. `([]string)`
 - `{{.Content}}`: The raw content of the Markdown file, excluding the metadata part. `(string)`
 - `{{.OutLins}}`: The .File values of the markdown files this one has links to. `([]string)`
 - `{{.Inlinks}}`: The .File values of the markdown files with a link to this file. `([]string)`
 - `{{.Attachments}}`: The Non-markdown files this file has links to. `([]string)`
+
+The variables at the bottom are the global ones that can be used in every template.
+
+- `{{.UrlPath}}`: The URL path including the query. Example: "/search?q=something" (string)
 
 The functions below can be used in both markdown templates and solo templates.
 
@@ -142,3 +146,4 @@ And here is an example `rss.xml` file to create an RSS feed.
 - You can use JavaScript in your Markdown files like in a HTML file.
 - The server ignores the hidden markdown files (the ones with a dot at the start.)
 - You can exclude a line in `ONLY_PUBLIC=yes` (default) mode by placing a `<!--exc-->` in the line.
+- Or you can exclude a block of lines by placing `<!--exc:start-->` and `<!--exc:end-->` between the lines.
