@@ -1,6 +1,6 @@
 package main
 import (
-	"bytes"; "log"; "sort"; "strings"; "text/template"; "os"; "path"; "path/filepath"; "github.com/mdigger/goldmark-attributes"
+	"bytes"; "log"; "fmt"; "sort"; "strings"; "text/template"; "os"; "path"; "path/filepath"; "github.com/mdigger/goldmark-attributes"
 	"github.com/yuin/goldmark"; "github.com/yuin/goldmark/extension"; "github.com/yuin/goldmark/parser"
 	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/zenarvus/goldmark-bettermedia"; "github.com/zenarvus/goldmark-mathjax"; "github.com/zenarvus/goldmark-headingid"
@@ -27,15 +27,15 @@ func loadAllTemplates(tType string){
 				if err!=nil {log.Println(err)} else {mdTemplates[relPath] = t}
 			}
 		}
-		log.Println(len(mdTemplates),"markdown templates are loaded.")
+		fmt.Println(len(mdTemplates),"markdown templates are loaded.")
 	case "solo":
 		filesStr:=getEnvValue("SOLO_TEMPLATES"); if filesStr==""{return}
-		for _,relPath := range strings.Split(filesStr,",") {
+		for relPath := range strings.SplitSeq(filesStr,",") {
 			relPath = filepath.Join("/",relPath);
 			t,err:=readTemplateFile(relPath)
 			if err!=nil{log.Println(err)} else {soloTemplates[relPath]=t}
 		}
-		log.Println(len(soloTemplates),"solo templates are loaded.")
+		fmt.Println(len(soloTemplates),"solo templates are loaded.")
 	}
 }
 func readTemplateFile(relPath string) (*template.Template, error) {
@@ -65,8 +65,8 @@ func ToHtml(mdText string) string {
 }
 func ListNodes() []*Node {
 	nodes := make([]*Node, 0, len(servedNodes))
-	for _, n := range servedNodes {
-		if n != nil {nodes = append(nodes, n)}
+	for relPath, n := range servedNodes {
+		if n != nil {n.File = &relPath; nodes = append(nodes, n)}
 	}
 	return nodes
 }

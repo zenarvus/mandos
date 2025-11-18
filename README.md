@@ -58,7 +58,7 @@ MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/p
 > If you want to run the server with TLS encryption, you can use the `CERT` and `KEY` environment variables and pass the respective file paths to them.
 
 ## Template Functions And Variables
-There are some variables and functions you can use inside a template. If it's a Markdown template, there are 10 basic variables you can use:
+There are some variables and functions you can use inside a template. If it's a Markdown template, there are 9 basic variables you can use:
 
 - `{{.Params}}`: The metadata part of the file, excluding the title, date and the tags. You can use `{{index .Params "key"}}` to access a value in it. `(map[string]any)`
 - `{{.File}}`: The path of the markdown file, considering the `MD_FOLDER` as root. `(string)`
@@ -68,13 +68,12 @@ There are some variables and functions you can use inside a template. If it's a 
     - Also you can check if the `.Date` field exists by using `{{if not .Date.IsZero}}...{{end}}`
 - `{{.Tags}}`: The tags of a markdown file. Include them in the `tags` metadata field as a YAML array. `([]string)`
 - `{{.Content}}`: The raw content of the Markdown file, excluding the metadata part. `(string)`
-- `{{.OutLins}}`: The .File values of the markdown files this one has links to. `([]string)`
-- `{{.Inlinks}}`: The .File values of the markdown files with a link to this file. `([]string)`
+- `{{.OutLinks}}`: The .File values of the markdown files this one has links to. `([]string)`
 - `{{.Attachments}}`: The Non-markdown files this file has links to. `([]string)`
 
-The variables at the bottom are the global ones that can be used in every template.
+***
 
-- `{{.UrlPath}}`: The URL path including the query. Example: "/search?q=something" (string)
+- `{{.UrlPath}}`: The URL path including the query. Example: "/search?q=something" This variable can be used in solo templates too. (string)
 
 The functions below can be used in both markdown templates and solo templates.
 
@@ -97,24 +96,24 @@ Here is an example `node-list.json` file to create a node list in json format. I
 {{- $listLen := len ListNodes -}}
 [{{- range $i, $v := ListNodes -}}
 
+{{- $aLen := len $v.Attachments -}}
 {{- $olLen := len $v.OutLinks -}}
-{{- $ilLen := len $v.InLinks -}}
 
 {"file":"{{$v.File -}}",
 "title":"{{ReplaceStr $v.Title `"` `\"` }}",
 "tags":[
-	{{- range $tagi,$tag := $v.Tags -}} "{{$tag}}"
+	{{- range $tagi,$tag := $v.Tags -}} "#{{$tag}}"
 		{{- if ne (Add $tagi 1) (len $v.Tags)}},{{end -}}
+	{{- end -}}
+],
+"attachments":[
+	{{- range $ai, $av := $v.Attachments -}} "{{$av}}"
+		{{- if ne (Add $ai 1) $aLen }},{{end -}}
 	{{- end -}}
 ],
 "outlinks":[
 	{{- range $oli, $olv := $v.OutLinks -}} "{{$olv}}"
 		{{- if ne (Add $oli 1) $olLen }},{{end -}}
-	{{- end -}}
-],
-"inlinks":[
-	{{- range $ili, $ilv := $v.InLinks -}} "{{$ilv}}"
-		{{- if ne (Add $ili 1) $ilLen }},{{end -}}
 	{{- end -}}
 ]}{{if ne (Add $i 1) $listLen}},{{end -}}
 

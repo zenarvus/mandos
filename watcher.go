@@ -23,7 +23,7 @@ func scheduleLoad(path string, run func()){
 }
 
 func watchFileChanges() {
-	log.Println("Watching for file changes.")
+	fmt.Println("Watching for file changes.")
 	watcher, err := fsnotify.NewWatcher(); if err != nil {log.Fatal(err)}
 	defer watcher.Close()
 	// Helper function to add a directory and all its subdirectories to the watcher

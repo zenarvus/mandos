@@ -5,17 +5,16 @@ import (
 	"os"; "path/filepath"; "strings"; "sync"; "time"
 	"gopkg.in/yaml.v3"
 )
-
+// Key is the relative file location starting with slash, considering notesPath as root.
 type Node struct {
-	File string // Absolute file location, considering notesPath as root. It is the same value with the key of the node in the servedNodes map. It is not set in the struct returned by getFileInfo.
+	File *string // The same with the key. Only used in templates.
 	Public bool // Is the file is public?
 	Title string // The last H1 heading or the "title" metadata field.
 	Date time.Time // the date metadata field.
 	Tags []string // The tags field in the metadata. It must be an array.
-	Content string // Raw markdown content
+	Content *string // Raw markdown content. Only used in templates.
 	Params map[string]any // Fields in the YAML metadata part, except the title, public, date and tags.
 	OutLinks []string // The list of nodes this node links to. (Their .File values)
-	InLinks []string //The list of nodes contains a link to this node. (Their .File values)
 	Attachments []string // Local non-markdown links in a node.
 }
 var servedNodes = make(map[string]*Node)
@@ -42,9 +41,9 @@ func loadAllNodes(){
 				nodeinfo, err := getNodeInfo(npath, true); if err != nil { select {case errCh <- err: default:} }
 
 				if isServed(nodeinfo.Public) {
-					nodeinfo.File=strings.TrimPrefix(npath, notesPath); nodeinfo.Content=""
+					relPath := strings.TrimPrefix(npath, notesPath);
 					// Go maps are not safe for concurrent writes
-					nmu.Lock(); servedNodes[nodeinfo.File] = &nodeinfo; nmu.Unlock()
+					nmu.Lock(); servedNodes[relPath] = &nodeinfo; nmu.Unlock()
 				}
 			}
 
@@ -71,87 +70,55 @@ func loadAllNodes(){
 	// Using select case makes it unblocking.
 	select {case e := <- errCh: fmt.Println("Error processing files:", e); default:}
 
-	SetInLinks()
-	log.Println(len(servedNodes), "nodes are loaded (in", time.Since(startTime).Milliseconds(),"ms)")
-	log.Println(len(servedAttachments),"attachments will be served.")
+	fmt.Println(len(servedNodes), "nodes are loaded (in", time.Since(startTime).Milliseconds(),"ms)")
+	fmt.Println(len(servedAttachments),"attachments will be served.")
 }
 
 func loadNode(relPath string){
 	oldNode,ok := servedNodes[relPath]
 	if ok || oldNode != nil {
-		// First delete the attachments if only one node (this one) has a link to them. As they can be changed when the content is changed. We will reload the new attachments in getFileInfo()
+		// First decrease attachment link counts and delete them if the link count is 0.
+		// As they can be changed when the content is changed. We will reload the new attachments in getFileInfo()
 		for _,attachment := range oldNode.Attachments {
-			if servedAttachments[attachment] <= 1 {delete(servedAttachments, attachment)}
+			servedAttachments[attachment]--
+			if servedAttachments[attachment] == 0 {delete(servedAttachments, attachment)}
 		}
 	}
 
 	absPath := filepath.Join(notesPath,relPath)
 	nodeInfo,err := getNodeInfo(absPath, true); if err != nil {log.Println("Error while reloading the node: ",err.Error())}
-	nodeInfo.File=relPath; nodeInfo.Content=""
 
-	if !isServed(nodeInfo.Public) {return}
+	if !isServed(nodeInfo.Public) {removeNode(relPath); return}
 
-	// Set the inlinks of this node, made from other nodes.
-	// This is slow as we have to look for every node's outlinks in the map.
-	// Maybe I can use a number instead? It would be faster I guess. But then, I would have a hard time while trying to remove this node from other nodes' outlinks. Because I would not know which nodes have a link to this node without iterating them.
-	var newInlinkArr []string
-	for _, fnode := range servedNodes {
-		if fnode.File != relPath {
-			for _, outLink := range fnode.OutLinks {
+	servedNodes[relPath]=&nodeInfo
+}
+func removeNode(relPath string) {
+	node := servedNodes[relPath]
+	// Delete the attachments if no node has a link to them.
+	for _,attachment := range node.Attachments {
+		servedAttachments[attachment]--
+		if servedAttachments[attachment] == 0 {delete(servedAttachments, attachment)}
+	}
+	
+	// Remove this node from other nodes' outlinks.
+	for otherRelPath, node := range servedNodes {
+		if otherRelPath != relPath {
+			for i, outLink := range node.OutLinks {
 				if outLink == relPath {
-					newInlinkArr = append(newInlinkArr, fnode.File)
+					// To delete the relPath from the outlinks of the nodes,
+					// Write the last item to the relPath's location and remove the last item.
+					node.OutLinks[i] = node.OutLinks[len(node.OutLinks)-1]
+					node.OutLinks = node.OutLinks[:len(node.OutLinks)-1]
 				}
 			}
 		}
 	}
-	nodeInfo.InLinks = newInlinkArr
-	servedNodes[relPath]=&nodeInfo
 
-	// Set the inlinks of other nodes, made from this node to them (because it can change when we update this node)
-	for _, outlink := range nodeInfo.OutLinks {
-		var alreadyContainsInlink bool
-		otherNode,ok := servedNodes[outlink]
-		if !ok || otherNode == nil {continue}
-
-		for _,inlink := range otherNode.InLinks {
-			if inlink==relPath {alreadyContainsInlink = true}
-		}
-		if !alreadyContainsInlink { otherNode.InLinks = append(otherNode.InLinks, nodeInfo.File) }
-	}
-}
-func removeNode(relPath string) {
-	node := servedNodes[relPath]
-	// Delete the attachments if only one node (this one) has a link to them.
-	for _,attachment := range node.Attachments {
-		if servedAttachments[attachment] <= 1 {delete(servedAttachments, attachment)}
-	}
-	// Remove this node from the inlinks of other nodes.
-	for _,outlink := range node.OutLinks {
-		newInlinkArr := []string{}
-		otherNode, ok := servedNodes[outlink]
-        if !ok || otherNode == nil {continue}
-		for _,inlink := range otherNode.InLinks {
-			if inlink != node.File {newInlinkArr = append(newInlinkArr, inlink)}
-		}
-		otherNode.InLinks = newInlinkArr
-	}
-
-	// Remove this node from other nodes' outlinks.
-	for _,inlink := range node.InLinks {
-		newOutlinkArr := []string{}
-		otherNode, ok := servedNodes[inlink]
-		if !ok || otherNode == nil {continue}
-		for _,outlink := range otherNode.OutLinks {
-			if outlink != node.File {newOutlinkArr = append(newOutlinkArr, outlink)}
-		}
-		otherNode.OutLinks=newOutlinkArr
-	}
 	delete(servedNodes, relPath)
 }
 
 func getNodeInfo(filename string, newNode bool) (nodeinfo Node, err error) {
 	data, err := os.ReadFile(filename); if err != nil {return nodeinfo, err};
-	seq := bytes.SplitSeq(data, []byte("\n"))
 
 	var inMeta bool
 	var inExcBlock bool
@@ -161,7 +128,7 @@ func getNodeInfo(filename string, newNode bool) (nodeinfo Node, err error) {
 	var linkMap = make(map[string]struct{})
 	nodeinfo.Title = filepath.Base(filename)
 
-	for line := range seq {
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
 		// Exclude lines if ONLY_PUBLIC != "no"
 		if onlyPublic != "no" {
 			if !inExcBlock && bytes.Contains(line, []byte("<!--exc:start-->")){inExcBlock=true; continue}
@@ -201,7 +168,7 @@ func getNodeInfo(filename string, newNode bool) (nodeinfo Node, err error) {
 	}
 
 	// Pass the content buffer to the fileinfo.Content if its not a new node. We do not use content field of the new nodes.
-	if !newNode {nodeinfo.Content = strings.TrimSuffix(contentBuf.String(), "\n")}
+	if !newNode {nodeinfo.Content = new(string); *nodeinfo.Content = strings.TrimSuffix(contentBuf.String(), "\n")}
 
 	// Add the tags in the tagMap to fileinfo.Tags
 	for tag := range tagMap{nodeinfo.Tags=append(nodeinfo.Tags, tag)}
@@ -240,16 +207,4 @@ func getNodeInfo(filename string, newNode bool) (nodeinfo Node, err error) {
 	}
 
 	return nodeinfo, nil
-}
-
-func SetInLinks(){
-	for _, fnode := range servedNodes {
-		for _, outLink := range fnode.OutLinks {
-			// If outLink of the fnode exists in the served files
-			if outlinkNode, ok := servedNodes[outLink]; ok && outlinkNode.File != "" {
-				// update the outLink node's inlinks and add fnode's MapKey
-				outlinkNode.InLinks = append(outlinkNode.InLinks, fnode.File)
-			}
-		}
-	}
 }
