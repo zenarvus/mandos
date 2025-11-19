@@ -139,10 +139,6 @@ func getNodeInfo(filename string, newNode bool) (nodeinfo Node, err error) {
 		// Run the link finding regexp if the line contains "](" or "src="
 		if bytes.Contains(line, []byte("](")) || bytes.Contains(line, []byte("src=")){
 			for _,match := range linkRe.FindAllSubmatch(line,-1) {
-
-				// Only look for internal links. (Not starting with [a-z]+://) Skip otherwise.
-				if extLinkRe.Match(match[1]) {continue}
-
 				// The link should start with a slash and the link path must consider notesPath as root. It should not be an absolute path or relative path inside the file system.
 				linkMap[filepath.Join("/", string(match[1]))] = struct{}{}
 			}

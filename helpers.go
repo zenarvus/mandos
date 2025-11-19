@@ -1,8 +1,7 @@
 package main
 import ("fmt"; "log"; "os"; "path"; "path/filepath"; "regexp"; "strings";)
 // Regular Expressions
-var linkRe = regexp.MustCompile(`\[.*?\]\(([^\)]*)\)|<.+src="/([^\"]+)".*?>`) // Extract markdown links or links inside html src.
-var extLinkRe = regexp.MustCompile(`^[a-z]+://`)
+var linkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)|<[^>]+src="/([^"?#]+)[^>]`) // Extract internal markdown links or internal html links inside src. Do not capture after ? or #
 
 var notesPath = getNotesPath() //it does not and should not have a slash suffix.
 var onlyPublic = getEnvValue("ONLY_PUBLIC")
