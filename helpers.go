@@ -17,7 +17,7 @@ func getEnvValue(key string)string{
 	case "MD_FOLDER": log.Fatal(fmt.Errorf("Please specify markdown folder path with MD_FOLDER environment variable."))
 	case "INDEX": return "index.md"
 	case "PORT": return "9700"
-	case "ONLY_PUBLIC": return "no"
+	case "ONLY_PUBLIC": return "yes"
 	//The location of the templates. Relative to the MD_FOLDER. Default is mandos.
 	case "MD_TEMPLATES": return path.Join(getNotesPath(), "mandos")
 	}

@@ -1,13 +1,37 @@
 package main
-import ("fmt"; "runtime"; "mime"; "path"; "path/filepath"; "github.com/gofiber/fiber/v2"; "github.com/gofiber/fiber/v2/middleware/compress")
+
+import (
+	"fmt"
+	"log"
+	"mime"
+	"path"
+	"path/filepath"
+	"runtime"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/compress"
+)
 
 func main() {
+	InitDB(); defer DB.Close()
+
 	fmt.Println("Folder:",notesPath); fmt.Println("Index:", indexPage)
-	loadAllTemplates("md"); loadAllTemplates("solo"); loadAllNodes(); go watchFileChanges()
+
+	loadAllTemplates("md"); loadAllTemplates("solo");
+
+	initialSyncWithDB()
+
+	var servedNodes int
+	rows, _ := DB.Query(`SELECT COUNT(*) AS row_count FROM nodes;`)
+	for rows.Next() {rows.Scan(&servedNodes)}
+	fmt.Println("Nodes Served:", servedNodes)
+
+	go watchFileChanges()
+
 	app := fiber.New(fiber.Config{DisableStartupMessage:true}); initRoutes(app)
 
 	var m runtime.MemStats; runtime.ReadMemStats(&m)
-	fmt.Printf("Allocated Memory: %.2f MiB\n", float64(m.Alloc)/1024/1024)
+	fmt.Printf("Memory Used: %.2f MiB\n", float64(m.Sys)/1024/1024)
 
 	fmt.Println("Server is started on port", getEnvValue("PORT"))
 	certFile:=getEnvValue("CERT"); keyFile:=getEnvValue("KEY")
@@ -26,7 +50,7 @@ func initRoutes(app *fiber.App){
 		Level: compress.LevelBestSpeed, // 1
 	}))
 
-	type PageVars struct { UrlPath string; *Node }
+	type PageVars struct { Url string; *Node }
 
 	//Only markdown files with public: true metadata and their previewed attachments are served
 	app.Get("/*", func(c *fiber.Ctx) error {
@@ -35,12 +59,17 @@ func initRoutes(app *fiber.App){
 		switch ext {
 		// If the wanted file is markdown, parse the template and serve if its served.
 		case ".md":
-			var nodeinfo,_ = getNodeInfo(path.Join(notesPath,urlPath), false)
-			if !isServed(nodeinfo.Public) || nodeinfo.Content == nil{
-				notfound := "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>"
-				nodeinfo = Node{
-					Content: &notfound,
-					Title: "404 Not Found",
+			var nodeinfo,_ = getNodeInfo(urlPath)
+			if !isServed(nodeinfo.Public) || nodeinfo.Content == ""{
+				if mdTemplates["/mandos/404.html"] != nil {
+					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeinfo})
+					if err!=nil {fmt.Println(err)}; return nil
+
+				} else {
+					nodeinfo = Node{
+						Content: "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>",
+						Title: "404 Not Found",
+					}
 				}
 			}
 			nodeinfo.File = &urlPath
@@ -52,21 +81,30 @@ func initRoutes(app *fiber.App){
 			templateRelPath := filepath.Join("/mandos/",templateName)
 			// Render the template
 			if mdTemplates[templateRelPath] != nil {
-				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{UrlPath: c.OriginalURL(), Node: &nodeinfo})
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeinfo})
 				if err!=nil {fmt.Println(err)}; return nil
 			}else{return c.SendString("No template found")}
 		// If the wanted file is not markdown
 		default:
-			if servedAttachments[urlPath] != 0 {
+			var attachment string
+
+			rows, err := DB.Query(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath)
+			if err != nil { log.Println(err) }
+			defer rows.Close()
+			for rows.Next() { if err := rows.Scan(&attachment); err != nil { log.Println(err) } }
+			if err!=nil{log.Fatalln(err)}
+
+			if attachment != "" {
 				// If the file is a solo template
 				if soloTemplates[urlPath] != nil{
 					c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))
-					err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{UrlPath: c.OriginalURL()})
+					err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL()})
 					if err!=nil {fmt.Println(err)}; return nil
 				}
 				// Else, send the file directly.
 				c.Response().Header.Add("Cache-Control", "max-age=604800")
 				return c.SendFile(path.Join(notesPath, urlPath))
+
 			}else{return c.SendStatus(404)}
 		}
 	})

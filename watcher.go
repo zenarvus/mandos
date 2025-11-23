@@ -52,12 +52,14 @@ func watchFileChanges() {
 
 					if event.Has(fsnotify.Remove) {
 						scheduleLoad(event.Name, func(){
-							removeNode(relPath)
+							deleteNodes([]string{relPath})
 							log.Println("A node has been deleted: ",relPath)
 						})
 					}else if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
 						scheduleLoad(event.Name, func() {
-							loadNode(relPath)
+							fileInfo,err := os.Stat(event.Name)
+							if err!=nil{log.Println(event.Name, err); return}
+							upsertNodes(map[string]int64{relPath: fileInfo.ModTime().Unix()})
 							log.Println("A node has been updated: ",relPath)
 						})
 					}
@@ -69,6 +71,11 @@ func watchFileChanges() {
 						log.Println("A template has been reloaded: ",relPath)
 					})
 
+				}else if partialTemplates[relPath] != nil{
+					scheduleLoad(event.Name,func(){
+						loadTemplate(relPath,"partial")
+						log.Println("A template has been reloaded: ",relPath)
+					})
 				// Reload solo templates if the changed file was a solo template.
 				}else if soloTemplates[relPath] != nil{
 					scheduleLoad(event.Name,func(){

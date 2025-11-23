@@ -1,16 +1,20 @@
 package main
 import (
-	"bytes"; "log"; "fmt"; "sort"; "strings"; "text/template"; "os"; "path"; "path/filepath"; "github.com/mdigger/goldmark-attributes"
-	"github.com/yuin/goldmark"; "github.com/yuin/goldmark/extension"; "github.com/yuin/goldmark/parser"
+	"bytes"; "log"; "fmt"; "strings"; "text/template"; "os"; "path"; "path/filepath"; "github.com/mdigger/goldmark-attributes";
+	"github.com/yuin/goldmark"; "github.com/yuin/goldmark/extension"; "github.com/yuin/goldmark/parser"; "net/url"
 	goldmarkHtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/zenarvus/goldmark-bettermedia"; "github.com/zenarvus/goldmark-mathjax"; "github.com/zenarvus/goldmark-headingid"
 )
 var templateFuncs = template.FuncMap{
 	"Add":func(x,y int)int{return x+y}, "Sub":func(x,y int)int{return x-y},
-	"ToHtml": ToHtml, "ListNodes": ListNodes, "SortNodesByDate": SortNodesByDate,
-	"ReplaceStr": strings.ReplaceAll, "Contains": strings.Contains,
+	"ToHtml": ToHtml, "GetNodes": GetNodes,
+	"ReplaceStr": strings.ReplaceAll, "Contains": strings.Contains, "Split": strings.Split,
+	"AnyArr":AnySlice, "BoolArr":BoolSlice, "Include":IncludePartial,
+	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
+	"UrlParseQuery":func(urlStr string)url.Values{parsed,_:=url.ParseQuery(urlStr); return parsed},
 }
 
+var partialTemplates = make(map[string]*template.Template)
 var mdTemplates = make(map[string]*template.Template)
 var soloTemplates = make(map[string]*template.Template)
 //initialize the template file
@@ -25,6 +29,14 @@ func loadAllTemplates(tType string){
 				relPath := strings.TrimPrefix(path.Join(templatesPath, file.Name()), notesPath)
 				t,err := readTemplateFile(relPath)
 				if err!=nil {log.Println(err)} else {mdTemplates[relPath] = t}
+
+			}else if file.IsDir() && file.Name() == "partials" {
+				partials, err := os.ReadDir(filepath.Join(templatesPath,"partials")); if err != nil {log.Fatal(err)}
+				for _,partial := range partials {
+					relPath := strings.TrimPrefix(path.Join(templatesPath, "partials", partial.Name()), notesPath)
+					t,err := readTemplateFile(relPath)
+					if err!=nil{log.Println(err)} else {partialTemplates[relPath] = t}
+				}
 			}
 		}
 		fmt.Println(len(mdTemplates),"markdown templates are loaded.")
@@ -49,6 +61,7 @@ func loadTemplate(relPath, tType string) {
 	switch tType {
 	case "md": mdTemplates[relPath]=tmpl
 	case "solo": soloTemplates[relPath]=tmpl
+	case "partial": partialTemplates[relPath]=tmpl
 	}
 }
 
@@ -63,19 +76,22 @@ func ToHtml(mdText string) string {
 	if err := htmlConverter.Convert([]byte(mdText), &html, parser.WithContext(parser.NewContext(parser.WithIDs(headingid.NewIDs())))); err != nil {log.Fatal(err)}
 	return html.String()
 }
-func ListNodes() []*Node {
-	nodes := make([]*Node, 0, len(servedNodes))
-	for relPath, n := range servedNodes {
-		if n != nil {n.File = &relPath; nodes = append(nodes, n)}
-	}
-	return nodes
+func AnySlice(args ...any) (slice []any) {
+	for _,arg := range args {slice = append(slice, arg)}
+	return slice
 }
-func SortNodesByDate(nodes []*Node) []*Node {
-	sort.SliceStable(nodes, func(i, j int) bool {
-		a, b := nodes[i].Date, nodes[j].Date; ai, bj := a.IsZero(), b.IsZero()
-		if ai != bj {return !ai && bj} /*non-zero before zero*/
-		if a.Equal(b) {return false}
-		return a.After(b)
-	})
-    return nodes
+func BoolSlice(args ...bool) (slice []bool) {
+	for _,arg := range args {slice = append(slice, arg)}
+	return slice
+}
+func IncludePartial(partialName string)string{
+	var buf bytes.Buffer
+
+	if partial := partialTemplates["/mandos/partials/"+partialName]; partial !=nil {
+		err := partial.Execute(&buf, map[string]any{})
+		if err!=nil{log.Println(err); return ""}
+
+	}else{log.Println("Partial does not exists:", partialName); return ""}
+
+	return buf.String()
 }
