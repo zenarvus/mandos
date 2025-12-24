@@ -35,8 +35,12 @@ func main() {
 
 	fmt.Println("Server is started on port", getEnvValue("PORT"))
 	certFile:=getEnvValue("CERT"); keyFile:=getEnvValue("KEY")
-	if certFile=="" || keyFile=="" {err := app.Listen(":"+getEnvValue("PORT")); if err!=nil{panic(err)}
-	}else{err := app.ListenTLS(":"+getEnvValue("PORT"),certFile,keyFile); if err!=nil{panic(err)}}
+	if certFile=="" || keyFile=="" {
+		err := app.Listen(":"+getEnvValue("PORT")); if err!=nil{panic(err)}
+	}else{
+		fmt.Println("TLS Mode Active")
+		err := app.ListenTLS(":"+getEnvValue("PORT"),certFile,keyFile); if err!=nil{panic(err)}
+	}
 }
 func initRoutes(app *fiber.App){
 	//All files in static folder are served

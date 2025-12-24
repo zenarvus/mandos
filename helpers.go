@@ -18,6 +18,7 @@ func getEnvValue(key string)string{
 	case "INDEX": return "index.md"
 	case "PORT": return "9700"
 	case "ONLY_PUBLIC": return "yes"
+	case "CONTENT_SEARCH": return "false"
 	//The location of the templates. Relative to the MD_FOLDER. Default is mandos.
 	case "MD_TEMPLATES": return path.Join(getNotesPath(), "mandos")
 	}

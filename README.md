@@ -48,7 +48,7 @@ You need to create a folder named `static` at the root of your Markdown folder.
 
 ### 3 Run The Server
 ```bash
-MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json go -C /path/to/mandos run .
+MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json CONTENT_SEARCH=true go -C /path/to/mandos run .
 ```
 
 - `INDEX=index.md`: The file to be served at the root path of the server (`/`). The default is `index.md`
@@ -58,13 +58,14 @@ MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/p
     - However, private markdown files a public one links to will not be served.
 - `MD_TEMPLATES=/path/to/templates/folder`: Set a custom template folder if you do not want to use the default `mandos` at the root of `MD_FOLDER`.
 - `SOLO_TEMPLATES=rss.xml,node-list.json`: The paths of the files in `MD_FOLDER` to make them a "solo template."
+- `CONTENT_SEARCH=true`: Enable searching through file contents using SQLite FTS5.
 
 > If you want to run the server with TLS encryption, you can use the `CERT` and `KEY` environment variables and pass the respective file paths to them.
 
 ## Tables
-The sqlite contains 4 tables
+The sqlite contains 5 tables
 
-"nodes", "outlinks", "attachments" and "params"
+"nodes", "outlinks", "attachments", "params" and "nodes_fts"
 
 You can query nodes based on these.
 
@@ -114,12 +115,23 @@ CREATE INDEX IF NOT EXISTS idx_params_key_val_from ON params(key, value, "from")
 CREATE INDEX IF NOT EXISTS idx_params_from ON params("from");
 ```
 
+### Nodes_FTS
+```
+CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
+    id UNINDEXED, 
+    title, 
+    content,
+    tokenize='porter unicode61'
+);
+```
+- Only created if CONTENT_SEARCH is true. Otherwise, does not exists.
+
 ## Template Functions And Variables
 There are some variables and functions you can use inside a template. If it's a Markdown template, there are 9 basic variables you can use:
 
-- `{{.Params}}`: The metadata part of the file, excluding the title, date and the tags. You can use `{{index .Params "key"}}` to access a value in it. `(map[string]any)`
+- `{{.Params}}`: The metadata part of the file, excluding the title, date and the tags. You can use `{{index .Params "key"}}` to access a value in it. Must be a string or array of strings. `(map[string]any)`
 - `{{.File}}`: The path of the markdown file, considering the `MD_FOLDER` as root. `(string)`
-- `{{.Title}}`: The last H1 heading of the Markdown file, or the `title` field in the document's metadata. `(string)`
+- `{{.Title}}`: The first H1 heading of the Markdown file, or the `title` field in the document's metadata. `(string)`
 - `{{.Date}}`: The date of the time aware node. You can make a node time-aware by adding a `date` field in its metadata with a value formatted as `yyyy-mm-dd`. `(time.Time)`
     - You can use `{{.Date.Format "format"}}` to convert it to any format you want.
     - Also you can check if the `.Date` field exists by using `{{if not .Date.IsZero}}...{{end}}`
@@ -136,25 +148,24 @@ The functions below can be used in both markdown templates and solo templates.
 
 - `{{Add x y}}`: Add y to x. `(int)`
 - `{{Sub x y}}`: Subtract y from x. `(int)`
+- `{{ToStr any}}`: Convert anything to string. `(string)`
 - `{{ToHtml string}}`: Convert a raw markdown text to html. `(string)`
 - `{{ReplaceStr str old new}}`: `strings.ReplaceAll` function. `(string)`
 - `{{Contains str match}}`: `strings.Contains` function. `(bool)`
-- `{{Split str seperator}}`: `strings.Split` function. `(string)`
-- `{{BoolArr (bool bool bool)}}`: Convert given arguments of bools into a bool slice. `([]bool)`
+- `{{DoubleSplitMap anyStr itemSep keyValSep}}`: Split the string to individual items using itemSep, then split these items to key-value pairs using keyValSep. If the keys are the same in different items combine their values into one key->[val1,val2] map item. `(map[string][]string)`
+- `{{Split anyStr seperator}}`: Split the given string using the separator. `(string)`
 - `{{AnyArr (val1 val2)}}`: Convert given arguments of any types into a slice of any. `([]any)`
 - `{{UrlParse urlStr}}`: `url.Parse` function but does not return error. `(*url.URL)`
 - `{{UrlParseQuery urlStr}}`: `url.ParseQuery` function but does not return error. `(url.Values)`
+- `{{FormatDateInt anyInt format}}`: Convert an unix epoch time to given date string format. `(string)`
 - `{{Include partialNameStr }}`: Include a partial to the template by giving its name. Put the partial name in quotes (\`\`) (Do not use this function in the partials) `(string)`
 
 ***
 
-- `{{GetNodes queryStr AnyArr BoolArr orderBy orderType}}`: returns a slice of nodes. A node contains the variables a markdown file has, expect the `.Content` field. You can iterate through them using `{{range (GetNodes...)}}...{{end}}`. `([]Node)`
-    - queryStr must complete this SQL query: `SELECT n.id, n.date, n.title FROM nodes AS n` for example: `JOIN params AS p ON n.id = p."from" WHERE p.key = ? AND p.value = ?`
-    - Pass the parameters you want to include in the query to the second argument `(AnyArr)`. Like this: '(AnyArr `tags` `moc`)'
-    - `BoolArr` should include 3 boolean values. The first one is used to include parameters (like tags or custom fields in the metadata), the second is used to include outlinks and the last one is used to include attachments. For example, this: `{{(BoolArr true false false)}}` includes params to the output but excludes outlinks and attachments.
-    - `orderBy` should be one of the fields in the nodes table. Like `date` or `title`.
-    - `orderType` should be either `ASC` for ascending or `DESC` for descending order.
-    - Example function call: '{{ $chemNodes := (GetNodes `JOIN params AS p ON n.id = p."from" WHERE p.key = ? AND p.value = ?` (AnyArr `tags` `chemistry`) (BoolArr false false false) `date` `DESC`)}}'
+- `{{GetRows queryStr AnyArr}}`: returns a slice of maps where keys are the selected columns and values are the values of these columns. You can iterate through them using `{{range (GetRows...)}}...{{end}}`. `([]map[string]any)`
+    - `queryStr` must be a complete SQLite query using the aforementioned tables.
+    - `AnyArr` must be the values being passed to the query.
+    - See the examples below.
 
 <!--
 To get nodes that contain both "articles" and "moc" tag:
@@ -170,55 +181,108 @@ A solo template is a non-markdown file that can execute the template functions i
 - You need to link the solo template in a markdown file to be able to serve it.
 - The solo templates needs to be outside of the `static` folder, and they cannot be a markdown file.
 
-Here is an example `node-list.json` file to create a node list in json format. It allows you to create [cool graphs](http://zenarvus.com/graph.md) like the ones in Obsidian.
+Here is an example `nodes.json` file to create a node list in json format. It allows you to create [cool graphs](http://v.oid.sh/graph.md) like the ones in Obsidian.
 ```
-{{- $nodes := (GetNodes `` (AnyArr) (BoolArr true true true) `` ``)  -}}
-{{- $listLen := len $nodes -}}
-[{{- range $i, $v := $nodes -}}
+{{- $query := `WITH TargetNodes AS (
+	SELECT n.id, n.date, n.title
+	FROM nodes AS n
+		
+), TagsAgg AS (
+	SELECT p."from", GROUP_CONCAT(p.key || '=' || p.value, '||') as params_str
+	FROM params AS p
+	INNER JOIN TargetNodes tn ON p."from" = tn.id AND p.key = "tags"
+	GROUP BY p."from"
+), OutlinksAgg AS (
+    SELECT o."from", GROUP_CONCAT(o."to", '||') as outlinks_str
+    FROM outlinks AS o
+    INNER JOIN TargetNodes tn ON o."from" = tn.id
+    GROUP BY o."from"
+), AttachmentsAgg AS (
+    SELECT a."from", GROUP_CONCAT(a.file, '||') as attachments_str
+    FROM attachments AS a
+    INNER JOIN TargetNodes tn ON a."from" = tn.id
+    GROUP BY a."from"
+)
+SELECT tn.id, tn.date, tn.title, par.params_str, ol.outlinks_str, att.attachments_str
+FROM TargetNodes AS tn
+LEFT JOIN TagsAgg AS par ON tn.id = par."from" LEFT JOIN OutlinksAgg AS ol ON tn.id = ol."from" LEFT JOIN AttachmentsAgg AS att ON tn.id = att."from";` -}}
 
-{{- $aLen := len $v.Attachments -}}
-{{- $olLen := len $v.OutLinks -}}
+{{- $results := (GetRows $query (AnyArr))  -}}
+{{- $listLen := len $results -}}
 
-{"file":"{{$v.File -}}",
-"title":"{{ReplaceStr $v.Title `"` `\"` }}",
-"tags":[
-	{{- range $tagi,$tag := $v.Tags -}} "#{{$tag}}"
-		{{- if ne (Add $tagi 1) (len $v.Tags)}},{{end -}}
-	{{- end -}}
-],
-"attachments":[
-	{{- range $ai, $av := $v.Attachments -}} "{{$av}}"
-		{{- if ne (Add $ai 1) $aLen }},{{end -}}
-	{{- end -}}
-],
-"outlinks":[
-	{{- range $oli, $olv := $v.OutLinks -}} "{{$olv}}"
-		{{- if ne (Add $oli 1) $olLen }},{{end -}}
-	{{- end -}}
-]}{{if ne (Add $i 1) $listLen}},{{end -}}
+[
+{{- range $i, $v := $results -}}
 
-{{- end -}}]
+{{- $outlinks := (Split $v.outlinks_str "||") -}}
+{{- $olLen := len $outlinks -}}
+
+{{- $attachments := (Split $v.attachments_str "||") -}}
+{{- $aLen := len $attachments -}}
+
+{{- $params := (DoubleSplitMap $v.tags_str "||" "=") -}}
+{{- $tags := $params.tags -}}
+
+{
+	"file":"{{$v.id -}}",
+	"title":"{{ReplaceStr $v.title `"` `\"` }}",
+	"tags":[
+		{{- range $tagi,$tag := $tags -}} "#{{$tag}}"
+			{{- if ne (Add $tagi 1) (len $tags)}},{{end -}}
+		{{- end -}}
+	],
+	"attachments":[
+		{{- range $ai, $av := $attachments -}} "{{$av}}"
+			{{- if ne (Add $ai 1) $aLen }},{{end -}}
+		{{- end -}}
+	],
+	"outlinks":[
+		{{- range $oli, $olv := $outlinks -}} "{{$olv}}"
+			{{- if ne (Add $oli 1) $olLen }},{{end -}}
+		{{- end -}}
+	]
+}{{- if ne (Add $i 1) $listLen}},{{end -}}
+
+{{- end -}}
+]
 ```
 
 And here is an example `rss.xml` file to create an RSS feed.
 ```
+{{- $query := `SELECT id, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
 <?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
 <title>Zenarvus</title>
 <link>https://zenarvus.com/rss.xml</link>
 <description>My second brain on the web.</description>
-{{- range (GetNodes `WHERE n.date > 0` (AnyArr) (BoolArr false false false) `date` `DESC`) -}}
+{{- range (GetRows $query (AnyArr)) -}}
 
-{{- if not .Date.IsZero -}}
 <item>
-<title>{{.Title}}</title>
-<link>https://zenarvus.com{{.File}}</link>
-<pubDate>{{.Date.Format "Mon, 02 Jan 2006 15:04:05 GMT"}}</pubDate>
+<title>{{.title}}</title>
+<link>https://zenarvus.com{{.id}}</link>
+<pubDate>{{FormatDateInt .date "Mon, 02 Jan 2006 15:04:05 GMT"}}</pubDate>
 </item>
-{{end}}
 
 {{- end -}}
 </channel></rss>
+```
+
+Finally, here is an example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
+```
+{{- $query := `SELECT n.id, n.date, n.title, snippet(nodes_fts, 2, '<b>', '</b>', '...', 15) AS content
+FROM nodes_fts f JOIN nodes n ON f.id = n.id WHERE nodes_fts MATCH ?
+ORDER BY bm25(nodes_fts, 0.0, 10.0, 1.0) ASC LIMIT 20;` -}}
+
+{{- $results := (GetRows $query (AnyArr ((UrlParse .Url).Query.Get `q`))) -}}
+{{- $listLen := len $results -}}
+
+[{{- range $i, $v := $results -}}
+
+{"file":"{{$v.id -}}",
+"title":"{{ReplaceStr $v.title `"` `\"` }}",
+"content":"{{ReplaceStr (ReplaceStr $v.content `"` `\"`) "\n" `\\n`}}"
+}{{if ne (Add $i 1) $listLen}},{{end -}}
+
+{{- end -}}]
 ```
 
 ## Additional Tips

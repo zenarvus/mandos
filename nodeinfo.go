@@ -27,6 +27,7 @@ func getNodeInfo(nodeId string) (nodeinfo Node, err error) {
 	var tagMap = make(map[string]struct{})
 	var linkMap = make(map[string]struct{})
 	nodeinfo.Title = nodeId
+	var gotTitle bool
 
 	for line := range bytes.SplitSeq(data, []byte("\n")) {
 		// Exclude lines if ONLY_PUBLIC != "no"
@@ -56,7 +57,7 @@ func getNodeInfo(nodeId string) (nodeinfo Node, err error) {
 		}
 
 		// Extract the title
-		if bytes.HasPrefix(line, []byte("# ")){ nodeinfo.Title = strings.TrimPrefix(string(line), "# ") }
+		if !gotTitle && bytes.HasPrefix(line, []byte("# ")){ nodeinfo.Title = strings.TrimPrefix(string(line), "# "); gotTitle = true; }
 
 		// Write the lines to the content buffer
 		contentBuf.Write(line)
