@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"mime"
@@ -58,58 +59,58 @@ func initRoutes(app *fiber.App){
 
 	//Only markdown files with public: true metadata and their previewed attachments are served
 	app.Get("/*", func(c *fiber.Ctx) error {
-		urlPath := "/"+c.Params("*"); if urlPath=="/"{urlPath += indexPage}; ext := filepath.Ext(urlPath)
+		urlPath := "/"+c.Params("*");
+		if urlPath=="/"{urlPath += indexPage};
 
-		switch ext {
+		switch filepath.Ext(urlPath) {
 		// If the wanted file is markdown, parse the template and serve if its served.
 		case ".md":
-			var nodeinfo,_ = getNodeInfo(urlPath)
-			if !isServed(nodeinfo.Public) || nodeinfo.Content == ""{
-				if mdTemplates["/mandos/404.html"] != nil {
-					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeinfo})
-					if err!=nil {fmt.Println(err)}; return nil
+			nodeInDB := GetNode(urlPath); // Get the node in the database.
 
+			// If nodeInDB has no content. (Node is not in the db or simply has no content)
+			// It will be not in the DB if it's non-public.
+			if nodeInDB.Content == "" {
+				if mdTemplates["/mandos/404.html"] != nil {
+					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInDB})
+					if err!=nil {fmt.Println(err)}; return nil
 				} else {
-					nodeinfo = Node{
-						Content: "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>",
-						Title: "404 Not Found",
+					nodeInDB = Node{
+						Title: "404 Not Found", Content: "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>",
 					}
 				}
 			}
-			nodeinfo.File = &urlPath
 
 			c.Response().Header.Add("Content-Type", "text/html")
 
-			templateName,ok := nodeinfo.Params["template"].(string)
+			templateName,ok := nodeInDB.Params["template"].(string)
 			if !ok || templateName == "" {templateName = "main.html"}
 			templateRelPath := filepath.Join("/mandos/",templateName)
+
 			// Render the template
 			if mdTemplates[templateRelPath] != nil {
-				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeinfo})
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInDB})
 				if err!=nil {fmt.Println(err)}; return nil
+
 			}else{return c.SendString("No template found")}
+
 		// If the wanted file is not markdown
 		default:
 			var attachment string
+			err := DB.QueryRow(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath).Scan(&attachment)
+			if err != nil {
+				if err == sql.ErrNoRows { return c.SendStatus(404) }
+				log.Println("Database error:", err); return c.SendStatus(500)
+			}
 
-			rows, err := DB.Query(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath)
-			if err != nil { log.Println(err) }
-			defer rows.Close()
-			for rows.Next() { if err := rows.Scan(&attachment); err != nil { log.Println(err) } }
-			if err!=nil{log.Fatalln(err)}
-
-			if attachment != "" {
-				// If the file is a solo template
-				if soloTemplates[urlPath] != nil{
-					c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))
-					err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL()})
-					if err!=nil {fmt.Println(err)}; return nil
-				}
-				// Else, send the file directly.
-				c.Response().Header.Add("Cache-Control", "max-age=604800")
-				return c.SendFile(path.Join(notesPath, urlPath))
-
-			}else{return c.SendStatus(404)}
+			// If we reach here, the attachment is found.
+			if soloTemplates[urlPath] != nil{ // If the file is a solo template
+				c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))
+				err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL()})
+				if err!=nil {fmt.Println(err)}; return nil
+			}
+			// Else, send the file directly.
+			c.Response().Header.Add("Cache-Control", "max-age=604800")
+			return c.SendFile(path.Join(notesPath, urlPath))
 		}
 	})
 }

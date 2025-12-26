@@ -72,11 +72,14 @@ You can query nodes based on these.
 ### Nodes
 ```
 CREATE TABLE IF NOT EXISTS nodes (
-    id    TEXT PRIMARY KEY,
-    mtime INTEGER NOT NULL,
-    date  INTEGER,
-    title TEXT
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		file TEXT UNIQUE,
+		mtime INTEGER NOT NULL,
+		date  INTEGER,
+		title TEXT,
+		content TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_node_file ON nodes(file);
 CREATE INDEX IF NOT EXISTS idx_node_date ON nodes(date);
 ```
 
@@ -86,7 +89,7 @@ CREATE TABLE IF NOT EXISTS outlinks (
     "from" TEXT NOT NULL,
     "to"   TEXT NOT NULL,
     PRIMARY KEY ("from", "to"),
-    FOREIGN KEY ("from") REFERENCES nodes(id) ON DELETE CASCADE
+    FOREIGN KEY ("from") REFERENCES nodes(file) ON DELETE CASCADE
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_outlink_to ON outlinks("to");
 ```
@@ -97,7 +100,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     "from" TEXT NOT NULL,
     file TEXT NOT NULL,
     PRIMARY KEY ("from", file)
-    FOREIGN KEY ("from") REFERENCES nodes(id) ON DELETE CASCADE
+    FOREIGN KEY ("from") REFERENCES nodes(file) ON DELETE CASCADE
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_attachment_file ON attachments(file);
 ```
@@ -109,7 +112,7 @@ CREATE TABLE IF NOT EXISTS params (
     key   TEXT NOT NULL,
     value TEXT NOT NULL,
     PRIMARY KEY ("from", key, value)
-    FOREIGN KEY ("from") REFERENCES nodes(id) ON DELETE CASCADE
+    FOREIGN KEY ("from") REFERENCES nodes(file) ON DELETE CASCADE
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_params_key_val_from ON params(key, value, "from");
 CREATE INDEX IF NOT EXISTS idx_params_from ON params("from");
@@ -118,10 +121,10 @@ CREATE INDEX IF NOT EXISTS idx_params_from ON params("from");
 ### Nodes_FTS
 ```
 CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
-    id UNINDEXED, 
-    title, 
-    content,
-    tokenize='porter unicode61'
+    title, content,
+    content='nodes',
+    content_rowid='id',
+    tokenize="unicode61 remove_diacritics 2 tokenchars '#'"
 );
 ```
 - Only created if CONTENT_SEARCH is true. Otherwise, does not exists.
@@ -184,28 +187,23 @@ A solo template is a non-markdown file that can execute the template functions i
 Here is an example `nodes.json` file to create a node list in json format. It allows you to create [cool graphs](http://v.oid.sh/graph.md) like the ones in Obsidian.
 ```
 {{- $query := `WITH TargetNodes AS (
-	SELECT n.id, n.date, n.title
+	SELECT n.file, n.date, n.title
 	FROM nodes AS n
 		
 ), TagsAgg AS (
 	SELECT p."from", GROUP_CONCAT(p.key || '=' || p.value, '||') as params_str
 	FROM params AS p
-	INNER JOIN TargetNodes tn ON p."from" = tn.id AND p.key = "tags"
+	INNER JOIN TargetNodes tn ON p."from" = tn.file AND p.key = "tags"
 	GROUP BY p."from"
 ), OutlinksAgg AS (
     SELECT o."from", GROUP_CONCAT(o."to", '||') as outlinks_str
     FROM outlinks AS o
-    INNER JOIN TargetNodes tn ON o."from" = tn.id
+    INNER JOIN TargetNodes tn ON o."from" = tn.file
     GROUP BY o."from"
-), AttachmentsAgg AS (
-    SELECT a."from", GROUP_CONCAT(a.file, '||') as attachments_str
-    FROM attachments AS a
-    INNER JOIN TargetNodes tn ON a."from" = tn.id
-    GROUP BY a."from"
 )
-SELECT tn.id, tn.date, tn.title, par.params_str, ol.outlinks_str, att.attachments_str
+SELECT tn.file, tn.date, tn.title, par.params_str, ol.outlinks_str
 FROM TargetNodes AS tn
-LEFT JOIN TagsAgg AS par ON tn.id = par."from" LEFT JOIN OutlinksAgg AS ol ON tn.id = ol."from" LEFT JOIN AttachmentsAgg AS att ON tn.id = att."from";` -}}
+LEFT JOIN TagsAgg AS par ON tn.file = par."from" LEFT JOIN OutlinksAgg AS ol ON tn.file = ol."from";` -}}
 
 {{- $results := (GetRows $query (AnyArr))  -}}
 {{- $listLen := len $results -}}
@@ -216,23 +214,15 @@ LEFT JOIN TagsAgg AS par ON tn.id = par."from" LEFT JOIN OutlinksAgg AS ol ON tn
 {{- $outlinks := (Split $v.outlinks_str "||") -}}
 {{- $olLen := len $outlinks -}}
 
-{{- $attachments := (Split $v.attachments_str "||") -}}
-{{- $aLen := len $attachments -}}
-
 {{- $params := (DoubleSplitMap $v.tags_str "||" "=") -}}
 {{- $tags := $params.tags -}}
 
 {
-	"file":"{{$v.id -}}",
+	"file":"{{$v.file -}}",
 	"title":"{{ReplaceStr $v.title `"` `\"` }}",
 	"tags":[
 		{{- range $tagi,$tag := $tags -}} "#{{$tag}}"
 			{{- if ne (Add $tagi 1) (len $tags)}},{{end -}}
-		{{- end -}}
-	],
-	"attachments":[
-		{{- range $ai, $av := $attachments -}} "{{$av}}"
-			{{- if ne (Add $ai 1) $aLen }},{{end -}}
 		{{- end -}}
 	],
 	"outlinks":[
@@ -248,7 +238,7 @@ LEFT JOIN TagsAgg AS par ON tn.id = par."from" LEFT JOIN OutlinksAgg AS ol ON tn
 
 And here is an example `rss.xml` file to create an RSS feed.
 ```
-{{- $query := `SELECT id, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
+{{- $query := `SELECT file, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
 <?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
 <title>Zenarvus</title>
@@ -258,7 +248,7 @@ And here is an example `rss.xml` file to create an RSS feed.
 
 <item>
 <title>{{.title}}</title>
-<link>https://zenarvus.com{{.id}}</link>
+<link>https://example.com{{.file}}</link>
 <pubDate>{{FormatDateInt .date "Mon, 02 Jan 2006 15:04:05 GMT"}}</pubDate>
 </item>
 
@@ -268,18 +258,18 @@ And here is an example `rss.xml` file to create an RSS feed.
 
 Finally, here is an example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
 ```
-{{- $query := `SELECT n.id, n.date, n.title, snippet(nodes_fts, 2, '<b>', '</b>', '...', 15) AS content
-FROM nodes_fts f JOIN nodes n ON f.id = n.id WHERE nodes_fts MATCH ?
-ORDER BY bm25(nodes_fts, 0.0, 10.0, 1.0) ASC LIMIT 20;` -}}
+{{- $query := `SELECT n.file, n.date, n.title, snippet(nodes_fts, 1, '<b>', '</b>', '...', 15) AS content
+FROM nodes n JOIN nodes_fts f ON n.id = f.rowid
+WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 
 {{- $results := (GetRows $query (AnyArr ((UrlParse .Url).Query.Get `q`))) -}}
 {{- $listLen := len $results -}}
 
 [{{- range $i, $v := $results -}}
 
-{"file":"{{$v.id -}}",
+{"file":"{{$v.file -}}",
 "title":"{{ReplaceStr $v.title `"` `\"` }}",
-"content":"{{ReplaceStr (ReplaceStr $v.content `"` `\"`) "\n" `\\n`}}"
+"content":"{{ReplaceStr (ReplaceStr (ReplaceStr (ReplaceStr $v.content `\` `\\`) `"` `\"`) "\n" `\n`) "\t" `\t`}}"
 }{{if ne (Add $i 1) $listLen}},{{end -}}
 
 {{- end -}}]
