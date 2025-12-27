@@ -30,7 +30,7 @@ var templateFuncs = template.FuncMap{
 
 	"GetRows": GetRows,
 
-	"ReplaceStr": strings.ReplaceAll,
+	"ReplaceStr": StringReplacer,
 	"Contains": strings.Contains,
 
 	"DoubleSplitMap": DoubleSplitMap,
@@ -40,8 +40,13 @@ var templateFuncs = template.FuncMap{
 
 	"FormatDateInt": FormatDateInt,
 
+	"GetNodeContent": GetNodeContent,
+	"GetContentMatch": GetContentMatch,
+
 	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
 	"UrlParseQuery":func(urlStr string)url.Values{parsed,_:=url.ParseQuery(urlStr); return parsed},
+
+	"GetEnv": getEnvValue,
 	
 	"Include":IncludePartial,
 }
@@ -89,7 +94,7 @@ func readTemplateFile(relPath string) (*template.Template, error) {
 }
 func loadTemplate(relPath, tType string) {
 	tmpl, err := readTemplateFile(relPath)
-	if err != nil {log.Fatal(err)}
+	if err != nil {log.Fatal("Template error:",err)}
 	switch tType {
 	case "md": mdTemplates[relPath]=tmpl
 	case "solo": soloTemplates[relPath]=tmpl
@@ -109,10 +114,6 @@ func ToHtml(mdText string) string {
 	return html.String()
 }
 func AnySlice(args ...any) (slice []any) {
-	for _,arg := range args {slice = append(slice, arg)}
-	return slice
-}
-func BoolSlice(args ...bool) (slice []bool) {
 	for _,arg := range args {slice = append(slice, arg)}
 	return slice
 }
@@ -166,4 +167,9 @@ func FormatDateInt(integer any, layout string) string {
 		return time.Unix(unixDate, 0).Format(layout)
 	}
 	
+}
+
+func StringReplacer(str string, oldNew ...string) string {
+	replacer := strings.NewReplacer(oldNew...)
+	return replacer.Replace(str)
 }

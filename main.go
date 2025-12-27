@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
@@ -29,7 +30,15 @@ func main() {
 
 	go watchFileChanges()
 
-	app := fiber.New(fiber.Config{DisableStartupMessage:true}); initRoutes(app)
+	app := fiber.New(fiber.Config{
+		DisableStartupMessage: true,
+		// Protective Timeouts
+		ReadTimeout:  5 * time.Second,  // Time allowed to read the full request body
+		WriteTimeout: 10 * time.Second, // Time allowed to write the response
+		IdleTimeout:  120 * time.Second, // Time a keep-alive connection stays open
+	})
+
+	initRoutes(app)
 
 	var m runtime.MemStats; runtime.ReadMemStats(&m)
 	fmt.Printf("Memory Used: %.2f MiB\n", float64(m.Sys)/1024/1024)
@@ -65,16 +74,20 @@ func initRoutes(app *fiber.App){
 		switch filepath.Ext(urlPath) {
 		// If the wanted file is markdown, parse the template and serve if its served.
 		case ".md":
-			nodeInDB := GetNode(urlPath); // Get the node in the database.
+			// Prefer the cached node
+			nodeInfo,exists := nodeCache.Get(urlPath)
+			if !exists {
+				nodeInfo,_ = getNodeInfo(urlPath, false);
+				nodeCache.Put(urlPath, nodeInfo) // Add node to the cache.
+			}
 
-			// If nodeInDB has no content. (Node is not in the db or simply has no content)
-			// It will be not in the DB if it's non-public.
-			if nodeInDB.Content == "" {
+			// If the node is not public or has no content.
+			if !isServed(nodeInfo.Public) || nodeInfo.Content == "" {
 				if mdTemplates["/mandos/404.html"] != nil {
-					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInDB})
+					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo})
 					if err!=nil {fmt.Println(err)}; return nil
 				} else {
-					nodeInDB = Node{
+					nodeInfo = Node{
 						Title: "404 Not Found", Content: "<p>404 node does not exist.</p><p><a href=\"/\">Return To Index</a></p>",
 					}
 				}
@@ -82,24 +95,29 @@ func initRoutes(app *fiber.App){
 
 			c.Response().Header.Add("Content-Type", "text/html")
 
-			templateName,ok := nodeInDB.Params["template"].(string)
+			templateName,ok := nodeInfo.Params["template"].(string)
 			if !ok || templateName == "" {templateName = "main.html"}
 			templateRelPath := filepath.Join("/mandos/",templateName)
 
 			// Render the template
 			if mdTemplates[templateRelPath] != nil {
-				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInDB})
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo})
 				if err!=nil {fmt.Println(err)}; return nil
 
 			}else{return c.SendString("No template found")}
 
 		// If the wanted file is not markdown
 		default:
-			var attachment string
-			err := DB.QueryRow(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath).Scan(&attachment)
-			if err != nil {
-				if err == sql.ErrNoRows { return c.SendStatus(404) }
-				log.Println("Database error:", err); return c.SendStatus(500)
+			// Prefer the cached attachment check.
+			attachment, exists := attachmentCache.Get(urlPath)
+			if !exists {
+				// Check if at least one node has a link to the attachment.
+				err := DB.QueryRow(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath).Scan(&attachment)
+				if err != nil {
+					if err == sql.ErrNoRows { return c.SendStatus(404) }
+					log.Println("Database error:", err); return c.SendStatus(500)
+				}
+				attachmentCache.Set(urlPath, urlPath, time.Second*30) // Save to the cache.
 			}
 
 			// If we reach here, the attachment is found.

@@ -3,6 +3,7 @@ module mandos
 go 1.24.7
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofiber/fiber/v2 v2.52.5
 	github.com/knaka/go-sqlite3-fts5 v0.0.0-20240729040425-e53b86878d0d

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"; "fmt"; "io/fs"; "log"; "os"; "path/filepath"; "strings"; "time"
+	"database/sql"; "fmt"; "io/fs"; "log"; "os"; "path/filepath"; "strings"; "time";
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/knaka/go-sqlite3-fts5"
 )
@@ -74,8 +74,7 @@ func ensureSchema(db *sql.DB) error {
 		file TEXT UNIQUE,
 		mtime INTEGER NOT NULL,
 		date  INTEGER,
-		title TEXT,
-		content TEXT
+		title TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_node_file ON nodes(file);
 	CREATE INDEX IF NOT EXISTS idx_node_date ON nodes(date);
@@ -119,27 +118,16 @@ func ensureSchema(db *sql.DB) error {
 	if getEnvValue("CONTENT_SEARCH") == "true" {
 		_, err = tx.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 			title, content,
-			content='nodes',
-			content_rowid='id',
+			content='', contentless_delete=1,
 			tokenize="unicode61 remove_diacritics 2 tokenchars '#'"
 		);`)
 		if err != nil { return err }
-		// Sync On Insert
-		_, err = tx.Exec(`CREATE TRIGGER IF NOT EXISTS nodes_ai AFTER INSERT ON nodes BEGIN
-	  		INSERT INTO nodes_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-		END;`)
-		if err != nil { return err }
-		// Sync On Delete
+		// Sync On Delete (Like ON DELETE CASCADE)
 		_, err = tx.Exec(`CREATE TRIGGER IF NOT EXISTS nodes_ad AFTER DELETE ON nodes BEGIN
-  			INSERT INTO nodes_fts(nodes_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
+  			DELETE FROM nodes_fts WHERE rowid = old.id;
 		END;`)
 		if err != nil { return err }
-		// Sync On Update
-		_, err = tx.Exec(`CREATE TRIGGER IF NOT EXISTS nodes_au AFTER UPDATE ON nodes BEGIN
-  			INSERT INTO nodes_fts(nodes_fts, rowid, title, content) VALUES('delete', old.id, old.title, old.content);
-  			INSERT INTO nodes_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
-		END;`)
-		if err != nil { return err }
+		// We first delete, then insert. No need for update sync.
 	}
 
 	return tx.Commit()
@@ -214,7 +202,11 @@ func deleteNodes(nodeIds []string) {
     delNodes, _ := tx.Prepare(`DELETE FROM nodes WHERE file = ?`)
     defer delNodes.Close()
 
-    for _, id := range nodeIds { delNodes.Exec(id); }
+    for _, id := range nodeIds {
+		delNodes.Exec(id);
+		// Remove the node from the cache.
+		nodeCache.Delete(id)
+	}
     tx.Commit()
 }
 
@@ -233,8 +225,14 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
 	delNodes, _ := tx.Prepare(`DELETE FROM nodes WHERE file = ?`) // For cleaning the non-public nodes and old attachments, params and outlinks that does not exist anymore.
 	defer delNodes.Close()
 	
-	stmtNode, _ := tx.Prepare(`INSERT INTO nodes (file, mtime, date, title, content) VALUES (?, ?, ?, ?, ?)`)
+	stmtNode, _ := tx.Prepare(`INSERT INTO nodes (file, mtime, date, title) VALUES (?, ?, ?, ?)`)
 	defer stmtNode.Close()
+
+	var stmtNodeFTS *sql.Stmt
+	if getEnvValue("CONTENT_SEARCH")=="true"{
+		stmtNodeFTS, _ = tx.Prepare(`INSERT INTO nodes_fts (rowid, title, content) VALUES (?, ?, ?)`)
+		defer stmtNodeFTS.Close()
+	}
 	
 	stmtLink, _ := tx.Prepare(`INSERT INTO outlinks ("from", "to") VALUES (?, ?)`)
 	defer stmtLink.Close()
@@ -254,17 +252,27 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
 		// Skip the private nodes.
 		if !isServed(node.Public){continue}
 
-		// Insert Node
-		if _, err := stmtNode.Exec(node.File, nodeIdMTimeMap[*node.File], node.Date.Unix(), node.Title, node.Content); err != nil {
-			log.Println("Error inserting node:", node.File, err)
+		// Update the node in the cache, without moving it to forward.
+		nodeCache.Update(node.File, node)
+
+		// Insert the node
+		result, err := stmtNode.Exec(node.File, nodeIdMTimeMap[node.File], node.Date, node.Title);
+		// If it gives an error, skip inserting things related to this node completely.
+		if err != nil { log.Println("Error inserting node:", node.File, err); continue }
+
+		// Insert the index of the node content.
+		if getEnvValue("CONTENT_SEARCH")=="true" {
+			newNodeRowId, err := result.LastInsertId()
+			if err != nil{log.Println("Error while getting node's last insert id:", node.File, err)}
+
+			_,err = stmtNodeFTS.Exec(newNodeRowId, node.Title, node.Content)
+			if err!=nil{log.Println("Error while inserting index of the node content:",node.File, err);}
 		}
 
 		// Insert Outlinks
 		for _, target := range node.OutLinks { _,err := stmtLink.Exec(node.File, target); if err!=nil{log.Println(node.File, target, err)} }
 		// Insert Attachments
 		for _, att := range node.Attachments { _,err := stmtAtt.Exec(node.File, att); if err!=nil{log.Println(node.File, att, err)} }
-		// Insert Tags (Saving them as params with key="tags")
-		for _, tag := range node.Tags { _,err:= stmtParam.Exec(node.File, "tags", tag); if err!=nil{log.Println(node.File, tag, err)} }
 
 		// Insert Params. Params is map[string]any, but values can only be string or []string
 		for key, val := range node.Params {
@@ -288,6 +296,9 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
 
 // Execute the queryStr with queryVals values, then return the rows in []map[string]any where key is the column name and value is the column value.
 func GetRows(queryStr string, queryVals []any) (returnData []map[string]any) {
+	// Prefer the cached data.
+	returnData, exists := queryCache.Get(GetQueryKey(queryStr, queryVals...))
+	if exists {return returnData}
 
 	rows, err := DB.Query(queryStr, queryVals...)
 	if err!=nil{log.Println(err); return returnData}
@@ -314,41 +325,9 @@ func GetRows(queryStr string, queryVals []any) (returnData []map[string]any) {
 		}
 		returnData = append(returnData, rowMap)
 	}
+
+	// Cache the returned data.
+	queryCache.Set(GetQueryKey(queryStr, queryVals...), returnData, time.Second*10)
+
 	return returnData
-}
-
-var nodeFetchQuery = `SELECT n.file, n.date, n.title, n.content,
-    (SELECT GROUP_CONCAT(key || '=' || value, '|||') FROM params WHERE "from" = n.file) AS params,
-    (SELECT GROUP_CONCAT("to", '|||') FROM outlinks WHERE "from" = n.file) AS outlinks,
-    (SELECT GROUP_CONCAT(file, '|||') FROM attachments WHERE "from" = n.file) AS attachments
-FROM nodes AS n WHERE n.file = ? LIMIT 1;`
-func GetNode(filePath string) (node Node) {
-
-	var file, title, content, params_str, outlinks_str, attachments_str sql.NullString
-	var date sql.NullInt64
-	err := DB.QueryRow(nodeFetchQuery, filePath).Scan(
-		&file, &date, &title, &content, &params_str, &outlinks_str, &attachments_str,
-	)
-	if err!=nil && err!=sql.ErrNoRows{log.Println("Error while getting node:",err)}
-
-	node = Node{
-		File: &file.String,
-		Public: true, // If it's in the database, it's public.
-		Title: title.String,
-		Date: time.Unix(date.Int64,0),
-		Content: content.String,
-		OutLinks: strings.Split(outlinks_str.String, "|||"),
-		Attachments: strings.Split(attachments_str.String, "|||"),
-	}
-	var params = make(map[string]any)
-	for param := range strings.SplitSeq(params_str.String, "|||") {
-		keyValue := strings.Split(param,"=")
-		if len(keyValue)==2 {
-			if keyValue[0]=="tags" { node.Tags=append(node.Tags, keyValue[1])
-			}else{ params[keyValue[0]]=keyValue[1] }
-		}
-	}
-	node.Params=params
-
-	return node
 }

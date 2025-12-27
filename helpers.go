@@ -1,7 +1,5 @@
 package main
-import ("fmt"; "log"; "os"; "path"; "path/filepath"; "regexp"; "strings";)
-// Regular Expressions
-var linkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)|<[^>]+src="/([^"?#]+)[^>]`) // Extract internal markdown links or internal html links inside src. Do not capture after ? or #
+import ("fmt"; "log"; "os"; "path"; "path/filepath"; "strings"; "github.com/cespare/xxhash/v2";)
 
 var notesPath = getNotesPath() //it does not and should not have a slash suffix.
 var onlyPublic = getEnvValue("ONLY_PUBLIC")
@@ -36,4 +34,13 @@ func getNotesPath() string {
 	// Converts a relative path to an absolute path.
 	p, err = filepath.Abs(p); if err != nil {log.Fatal(err)}
 	return strings.TrimSuffix(p, "/")
+}
+
+func GetQueryKey(query string, args ...any) string {
+    h := xxhash.New()
+    h.Write([]byte(query))
+    for _, arg := range args {
+        h.Write([]byte(fmt.Sprintf("%v", arg)))
+    }
+    return fmt.Sprintf("%016x", h.Sum64())
 }

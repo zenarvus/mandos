@@ -77,7 +77,6 @@ CREATE TABLE IF NOT EXISTS nodes (
 		mtime INTEGER NOT NULL,
 		date  INTEGER,
 		title TEXT,
-		content TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_node_file ON nodes(file);
 CREATE INDEX IF NOT EXISTS idx_node_date ON nodes(date);
@@ -122,8 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_params_from ON params("from");
 ```
 CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
     title, content,
-    content='nodes',
-    content_rowid='id',
+    content='',
     tokenize="unicode61 remove_diacritics 2 tokenchars '#'"
 );
 ```
@@ -132,13 +130,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 ## Template Functions And Variables
 There are some variables and functions you can use inside a template. If it's a Markdown template, there are 9 basic variables you can use:
 
-- `{{.Params}}`: The metadata part of the file, excluding the title, date and the tags. You can use `{{index .Params "key"}}` to access a value in it. Must be a string or array of strings. `(map[string]any)`
+- `{{.Params}}`: The metadata part of the file, excluding the title and date. You can use `{{index .Params "key"}}` to access a value in it. Must be a string or array of strings. `(map[string]any)`
 - `{{.File}}`: The path of the markdown file, considering the `MD_FOLDER` as root. `(string)`
 - `{{.Title}}`: The first H1 heading of the Markdown file, or the `title` field in the document's metadata. `(string)`
-- `{{.Date}}`: The date of the time aware node. You can make a node time-aware by adding a `date` field in its metadata with a value formatted as `yyyy-mm-dd`. `(time.Time)`
-    - You can use `{{.Date.Format "format"}}` to convert it to any format you want.
-    - Also you can check if the `.Date` field exists by using `{{if not .Date.IsZero}}...{{end}}`
-- `{{.Tags}}`: The tags of a markdown file. Include them in the `tags` metadata field as a YAML array. `([]string)`
+- `{{.Date}}`: The unix epoch date of the time aware node. You can make a node time-aware by adding a `date` field in its metadata with a value formatted as `yyyy-mm-dd`. `(int64)`
 - `{{.Content}}`: The raw content of the Markdown file, excluding the metadata part. `(string)`
 - `{{.OutLinks}}`: The .File values of the markdown files this one has links to. `([]string)`
 - `{{.Attachments}}`: The Non-markdown files this file has links to. `([]string)`
@@ -258,7 +253,7 @@ And here is an example `rss.xml` file to create an RSS feed.
 
 Finally, here is an example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
 ```
-{{- $query := `SELECT n.file, n.date, n.title, snippet(nodes_fts, 1, '<b>', '</b>', '...', 15) AS content
+{{- $query := `SELECT n.file, n.date, n.title
 FROM nodes n JOIN nodes_fts f ON n.id = f.rowid
 WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 
