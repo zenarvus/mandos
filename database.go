@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"; "fmt"; "io/fs"; "log"; "os"; "path/filepath"; "strings"; "time";
+	"database/sql"; "fmt"; "io/fs"; "log"; "os"; "path/filepath"; "strings"; "time"; "sync"; "runtime"
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/knaka/go-sqlite3-fts5"
 )
@@ -189,7 +189,6 @@ func initialSyncWithDB() {
 	fmt.Printf("Database synchronization is completed in %v ms\n", time.Since(syncStartTime).Milliseconds())
 }
 
-
 func deleteNodes(nodeIds []string) {
     if len(nodeIds) == 0 { return }
 
@@ -208,19 +207,53 @@ func deleteNodes(nodeIds []string) {
     tx.Commit()
 }
 
-func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
-	if len(nodeIdMTimeMap) == 0 {return 0}
+func upsertNodes(nodeIdMTimeMap map[string]int64) (count int) {
+	if len(nodeIdMTimeMap) == 0 { return 0 }
 
-	nodes := bulkNodeInfo(nodeIdMTimeMap)
+	// 1. Setup Channel and WaitGroup
+	type result struct {node  Node; mtime int64}
 
-	// Start the transaction (Atomic update)
-	tx, err := DB.Begin()
-	if err != nil { log.Println("Failed to begin transaction:", err); return 0}
-	// Safety: If we panic or return early, rollback changes
-	defer tx.Rollback()
+	batchSize := 1000
 
-	// PREPARE STATEMENTS
-	delNodes, _ := tx.Prepare(`DELETE FROM nodes WHERE file = ?`) // For cleaning the non-public nodes and old attachments, params and outlinks that does not exist anymore.
+	// Channel to hold the results of getNodeInfo
+	jobs := make(chan result, batchSize) 
+	var wg sync.WaitGroup
+
+	// Distribute work
+	pathChan := make(chan string, batchSize/2)
+	for range runtime.NumCPU() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range pathChan {
+				node, err := getNodeInfo(path, false)
+				if err != nil {
+					log.Println("Error getting node info:", path, err); continue
+				}
+				// Skip the private nodes.
+				if !isServed(node.Public){continue}
+				// Update the node in the cache if exists, without moving it to forward.
+				nodeCache.Update(node.File, node)
+				jobs <- result{node: node, mtime: nodeIdMTimeMap[path]}
+			}
+		}()
+	}
+
+	// Feed workers with filepaths and close the path channel
+	go func() {
+		for p := range nodeIdMTimeMap { pathChan <- p }
+		close(pathChan)
+		wg.Wait()
+		close(jobs) // Close jobs once all workers are done
+	}()
+
+	tx, _ := DB.Begin() // Start the transaction
+	defer tx.Rollback() // Rollback if a critical error happens.
+
+	// --- PREPARE STATEMENTS --- //
+
+	// For cleaning the non-public nodes and old attachments, params and outlinks that does not exist anymore.
+	delNodes, _ := tx.Prepare(`DELETE FROM nodes WHERE file = ?`) 
 	defer delNodes.Close()
 	
 	stmtNode, _ := tx.Prepare(`INSERT INTO nodes (file, mtime, date, title) VALUES (?, ?, ?, ?)`)
@@ -242,19 +275,16 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
 	stmtParam, _ := tx.Prepare(`INSERT OR IGNORE INTO params ("from", "key", "value") VALUES (?, ?, ?)`)
 	defer stmtParam.Close()
 
-	// PROCESS THE BATCH
-	for _, node := range nodes {
+	// This loop runs in the main thread, pulling data as it becomes available
+	for res := range jobs {
+
+		node,mtime := res.node,res.mtime
+
 		// Delete existing node.
 		if _, err := delNodes.Exec(node.File); err != nil { log.Println("Error deleting node:", node.File, err) }
-	
-		// Skip the private nodes.
-		if !isServed(node.Public){continue}
-
-		// Update the node in the cache, without moving it to forward.
-		nodeCache.Update(node.File, node)
 
 		// Insert the node
-		result, err := stmtNode.Exec(node.File, nodeIdMTimeMap[node.File], node.Date, node.Title);
+		result, err := stmtNode.Exec(node.File, mtime, node.Date, node.Title);
 		// If it gives an error, skip inserting things related to this node completely.
 		if err != nil { log.Println("Error inserting node:", node.File, err); continue }
 
@@ -275,21 +305,21 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (upserted int) {
 		// Insert Params. Params is map[string]any, but values can only be string or []string
 		for key, val := range node.Params {
 			switch v := val.(type) {
-			case string: stmtParam.Exec(node.File, key, v)
+				case string: stmtParam.Exec(node.File, key, v)
 
-			case []string: for _, subVal := range v { stmtParam.Exec(node.File, key, subVal) }
+				case []string: for _, subVal := range v { stmtParam.Exec(node.File, key, subVal) }
 
-			default:
-				// Handle other types (int, bool) if your metadata supports them
-				// fmt.Sprint(v) is a safe fallback
-				stmtParam.Exec(node.File, key, fmt.Sprint(val))
+				// use fmt.Sprint as fallback.
+				default: stmtParam.Exec(node.File, key, fmt.Sprint(val))
 			}
 		}
-		upserted++
+
+		count++
 	}
-	// Commit everything at once
-	if err := tx.Commit(); err != nil { log.Println("Failed to commit transaction:", err) }
-	return upserted
+	// Do the final commit and cleanup.
+	tx.Commit()
+
+	return count
 }
 
 // Execute the queryStr with queryVals values, then return the rows in []map[string]any where key is the column name and value is the column value.

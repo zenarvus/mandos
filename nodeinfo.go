@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"; "fmt"; "os"; "path/filepath"; "strings"; "time"; "runtime"; "sync"; "regexp"; "unicode/utf8"
+	"bytes"; "fmt"; "os"; "path/filepath"; "strings"; "time"; "regexp"; "unicode/utf8"
 	"gopkg.in/yaml.v3";
 )
 // Key is the relative file location starting with slash, considering notesPath as root.
@@ -14,45 +14,6 @@ type Node struct {
 	Params map[string]any // Fields in the YAML metadata part, except the title, public, and date. Must be []string or string
 	OutLinks []string // The list of nodes this node links to. (Their .File values)
 	Attachments []string // Local non-markdown links in a node.
-}
-
-func bulkNodeInfo(nodeIdMTimeMap map[string]int64) ([]Node) {
-	var nodes = make([]Node, 0, len(nodeIdMTimeMap))
-	var multiThread bool
-	if len(nodeIdMTimeMap) > 100 {multiThread=true}
-
-	if multiThread {
-		pathsCh := make(chan string, 256)
-		var resultsCh = make(chan Node, len(nodeIdMTimeMap))
-		var wg sync.WaitGroup
-		for i:=0; i <  runtime.NumCPU(); i++ {
-			wg.Add(1)
-			go func(){
-				defer wg.Done()
-
-				for npath := range pathsCh {
-					nodeinfo, err := getNodeInfo(npath, false); if err != nil { fmt.Println("Error processing files:", err) }
-
-					if isServed(nodeinfo.Public) { resultsCh <- nodeinfo } // Go maps are not safe for concurrent writes
-				}
-			}()
-		}
-		for npath := range nodeIdMTimeMap { pathsCh <- npath }
-
-		close(pathsCh)
-		wg.Wait()
-
-		close(resultsCh)
-		for node := range resultsCh {nodes = append(nodes, node)}
-
-	} else {
-		for npath := range nodeIdMTimeMap {
-			nodeinfo, err := getNodeInfo(npath, false); if err != nil { fmt.Println("Error processing files:", err) }
-
-			if isServed(nodeinfo.Public) { nodes = append(nodes, nodeinfo); }
-		}
-	}
-	return nodes
 }
 
 var linkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)|<[^>]+src="/([^"?#]+)[^>]`) // Extract internal markdown links or internal html links inside src. Do not capture after ? or #

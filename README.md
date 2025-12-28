@@ -334,7 +334,7 @@ A solo template is a non-markdown file that can execute the template functions i
 - You need to link the solo template in a markdown file to be able to serve it.
 - The solo templates needs to be outside of the `static` folder, and they cannot be a markdown file.
 
-Here is an example `nodes.json` file to create a node list in json format. It allows you to create [cool graphs](http://v.oid.sh/graph.md) like the ones in Obsidian.
+Here is an example `nodes.json` file to create a node list in json format. It can allow you to create cool useless graphs like the ones in Obsidian.
 ```
 {{- $query := `WITH TargetNodes AS (
 	SELECT n.file, n.date, n.title
