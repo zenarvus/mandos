@@ -8,10 +8,12 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 )
 
 func main() {
@@ -30,13 +32,22 @@ func main() {
 
 	go watchFileChanges()
 
-	app := fiber.New(fiber.Config{
+	fiberConfig := fiber.Config{
 		DisableStartupMessage: true,
 		// Protective Timeouts
 		ReadTimeout:  5 * time.Second,  // Time allowed to read the full request body
 		WriteTimeout: 10 * time.Second, // Time allowed to write the response
 		IdleTimeout:  120 * time.Second, // Time a keep-alive connection stays open
-	})
+	}
+
+	trustedProxiesStr := getEnvValue("TRUSTED_PROXIES")
+	if trustedProxiesStr != "" {
+		proxies := strings.Split(trustedProxiesStr, ",")
+		fiberConfig.EnableTrustedProxyCheck = true
+		fiberConfig.TrustedProxies = proxies
+	}
+
+	app := fiber.New(fiberConfig)
 
 	initRoutes(app)
 
@@ -53,6 +64,43 @@ func main() {
 	}
 }
 func initRoutes(app *fiber.App){
+	// Implement markdown file rate limiting.
+	if getEnvValue("MD_RATE_LIMIT_MAX") != "0" && getEnvValue("MD_RATE_LIMIT_EXPR") != "0" {
+		app.Use(limiter.New(limiter.Config{
+			Next: func(c *fiber.Ctx) bool {
+				// If it's a markdown file, do not skip it, use the rate limiter. Else, skip.
+				return !strings.HasSuffix(c.Path(), ".md")
+			},
+			Max: convertToInt(getEnvValue("MD_RATE_LIMIT_MAX")),
+			Expiration: time.Duration(convertToInt(getEnvValue("MD_RATE_LIMIT_EXPR"))) * time.Second,
+			KeyGenerator: func(c *fiber.Ctx) string { return c.IP() },
+		}))	
+	}
+	// Implement solo template rate limiting.
+	if getEnvValue("SOLO_RATE_LIMIT_MAX") != "0" && getEnvValue("SOLO_RATE_LIMIT_EXPR") != "0" {
+		app.Use(limiter.New(limiter.Config{
+			Next: func(c *fiber.Ctx) bool {
+				// If it's a solo template file, do not skip it, use the rate limiter. Else, skip.
+				return soloTemplates[c.Path()] == nil
+			},
+			Max: convertToInt(getEnvValue("SOLO_RATE_LIMIT_MAX")),
+			Expiration: time.Duration(convertToInt(getEnvValue("SOLO_RATE_LIMIT_EXPR"))) * time.Second,
+			KeyGenerator: func(c *fiber.Ctx) string { return c.IP() },
+		}))	
+	}
+	// Implement rate limiting to anything else.
+	if getEnvValue("ELSE_RATE_LIMIT_MAX") != "0" && getEnvValue("ELSE_RATE_LIMIT_EXPR") != "0" {
+		app.Use(limiter.New(limiter.Config{
+			Next: func(c *fiber.Ctx) bool {
+				// If it's not a markdown file nor solo template, apply the else rate limiter. Else, skip.
+				return strings.HasSuffix(c.Path(), ".md") || soloTemplates[c.Path()] != nil
+			},
+			Max: convertToInt(getEnvValue("ELSE_RATE_LIMIT_MAX")),
+			Expiration: time.Duration(convertToInt(getEnvValue("ELSE_RATE_LIMIT_EXPR"))) * time.Second,
+			KeyGenerator: func(c *fiber.Ctx) string { return c.IP() },
+		}))	
+	}
+
 	//All files in static folder are served
 	app.Static("/static", path.Join(notesPath,"/static"), fiber.Static{MaxAge:60*60*24*7})
 	// Compress with gzip if its ends with ,css, .html, .json, js, .xml, txt or md. Skip compression if its not them
@@ -64,7 +112,7 @@ func initRoutes(app *fiber.App){
 		Level: compress.LevelBestSpeed, // 1
 	}))
 
-	type PageVars struct { Url string; *Node }
+	type PageVars struct { Url string; *Node; Headers map[string]string }
 
 	//Only markdown files with public: true metadata and their previewed attachments are served
 	app.Get("/*", func(c *fiber.Ctx) error {
@@ -81,10 +129,15 @@ func initRoutes(app *fiber.App){
 				nodeCache.Put(urlPath, nodeInfo) // Add node to the cache.
 			}
 
+			var headers = make(map[string]string)
+			for header,values := range c.GetReqHeaders() { headers[header] = values[0] }
+
 			// If the node is not public or has no content.
 			if !isServed(nodeInfo.Public) || nodeInfo.Content == "" {
 				if mdTemplates["/mandos/404.html"] != nil {
-					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo})
+					err := mdTemplates["/mandos/404.html"].Execute(c.Response().BodyWriter(), PageVars{
+						Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo, Headers: headers,
+					})
 					if err!=nil {fmt.Println(err)}; return nil
 				} else {
 					nodeInfo = Node{
@@ -97,11 +150,13 @@ func initRoutes(app *fiber.App){
 
 			templateName,ok := nodeInfo.Params["template"].(string)
 			if !ok || templateName == "" {templateName = "main.html"}
-			templateRelPath := filepath.Join("/mandos/",templateName)
+			templateRelPath := filepath.Join(getEnvValue("MD_TEMPLATES"),templateName)
 
 			// Render the template
 			if mdTemplates[templateRelPath] != nil {
-				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo})
+				err := mdTemplates[templateRelPath].Execute(c.Response().BodyWriter(), PageVars{
+					Url: c.BaseURL()+c.OriginalURL(), Node: &nodeInfo, Headers: headers,
+				})
 				if err!=nil {fmt.Println(err)}; return nil
 
 			}else{return c.SendString("No template found")}
@@ -122,8 +177,13 @@ func initRoutes(app *fiber.App){
 
 			// If we reach here, the attachment is found.
 			if soloTemplates[urlPath] != nil{ // If the file is a solo template
+				var headers = make(map[string]string)
+				for header,values := range c.GetReqHeaders() { headers[header] = values[0] }
+
 				c.Response().Header.Add("Content-Type",mime.TypeByExtension(filepath.Ext(urlPath)))
-				err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{Url: c.BaseURL()+c.OriginalURL()})
+				err := soloTemplates[urlPath].Execute(c.Response().BodyWriter(), PageVars{
+					Url: c.BaseURL()+c.OriginalURL(), Headers: headers,
+				})
 				if err!=nil {fmt.Println(err)}; return nil
 			}
 			// Else, send the file directly.

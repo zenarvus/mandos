@@ -80,8 +80,14 @@ func getNodeInfo(nodeId string, onlyContent bool) (nodeinfo Node, err error) {
 		// Run the link finding regexp if the line contains "](" or "src="
 		if !onlyContent && ( bytes.Contains(line, []byte("](")) || bytes.Contains(line, []byte("src=")) ){
 			for _,match := range linkRe.FindAllSubmatch(line,-1) {
+				var path string
+    			if len(match[1]) > 0 { // If it's the capture group 1 (markdown link matching)
+        			path = string(match[1])
+    			} else if len(match) > 2 && len(match[2]) > 0 { // If it's the capture group 2 (html src matching)
+        			path = string(match[2])
+    			}
 				// The link should start with a slash and the link path must consider notesPath as root. It should not be an absolute path or relative path inside the file system.
-				linkMap[filepath.Join("/", string(match[1]))] = struct{}{}
+				linkMap[filepath.Join("/", path)] = struct{}{}
 			}
 		}
 
@@ -156,9 +162,7 @@ var fts5Query = regexp.MustCompile(`"([^"]+)"|(\w+)`)
 // it returns a windowed snippet around the match. Otherwise, it falls back to 
 // the best partial match found. It handles UTF-8 safely and avoids per-line allocations.
 func GetContentMatch(content string, searchQuery string, window int) string {
-	if content == "" || searchQuery == "" {
-		return ""
-	}
+	if content == "" || searchQuery == "" { return "" }
 
 	// Pre-process tokens
 	matches := fts5Query.FindAllStringSubmatch(searchQuery, -1)

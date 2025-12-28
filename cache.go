@@ -1,10 +1,6 @@
 package main
 
-import(
-	"container/list"
-	"sync"
-	"time"
-)
+import( "container/list"; "sync"; "time" )
 
 var nodeCache = NewLRUCache[string, Node](500)
 var attachmentCache = NewTTLCache[string, string](5 * time.Minute)

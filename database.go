@@ -45,14 +45,12 @@ func checkDatabaseConsistency(cacheDir string) {
 func InitDB() {
 	var err error
 
-	userCache, err := os.UserCacheDir(); if err!=nil{log.Fatalln("Cache dir could not be determined.", err)}
-	cacheDir := filepath.Join(userCache,"mandos")
-	err = os.MkdirAll(cacheDir, 0755); if err!=nil {log.Fatalln("Cache dir could not be created.", err)}
+	err = os.MkdirAll(getEnvValue("CACHE_FOLDER"), 0755); if err!=nil {log.Fatalln("Cache dir could not be created.", err)}
 
-	checkDatabaseConsistency(cacheDir)
+	checkDatabaseConsistency(getEnvValue("CACHE_FOLDER"))
 
 	// Open (creates file if not exists)
-	DB, err = sql.Open("sqlite3", "file:"+filepath.Join(cacheDir,"mandos.db"))
+	DB, err = sql.Open("sqlite3", "file:"+filepath.Join(getEnvValue("CACHE_FOLDER"),"mandos.db"))
 	if err != nil { log.Fatal(err) }
 	// Ensure connection is alive
 	if err := DB.Ping(); err != nil { log.Fatal(err) }
@@ -171,8 +169,8 @@ func initialSyncWithDB() {
 			// Delete the node from the sqlNodeMtimes map if it exists in the filesystem. The remaining will be the deleted nodes.
 			if sqlNodeMtimes[relPath] != 0 { delete(sqlNodeMtimes, relPath) }
 
-		// TODO: This also skips the directories named "static" that are not in the root. Fix that.
-		}else if d.IsDir() && d.Name() == "static" { return filepath.SkipDir }
+		// TODO: This also skips the directories named "static" and "mandos" that are not in the root. Fix that.
+		}else if d.IsDir() && (d.Name() == "static" || d.Name() == "mandos") { return filepath.SkipDir }
 		return nil
 	})
 	if err != nil {fmt.Println("Error walking the path:", err)}

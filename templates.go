@@ -44,7 +44,6 @@ var templateFuncs = template.FuncMap{
 	"GetContentMatch": GetContentMatch,
 
 	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
-	"UrlParseQuery":func(urlStr string)url.Values{parsed,_:=url.ParseQuery(urlStr); return parsed},
 
 	"GetEnv": getEnvValue,
 	
@@ -120,7 +119,7 @@ func AnySlice(args ...any) (slice []any) {
 func IncludePartial(partialName string)string{
 	var buf bytes.Buffer
 
-	if partial := partialTemplates["/mandos/partials/"+partialName]; partial !=nil {
+	if partial := partialTemplates[path.Join(getEnvValue("MD_TEMPLATES"), "partials", partialName)]; partial !=nil {
 		err := partial.Execute(&buf, map[string]any{})
 		if err!=nil{log.Println(err); return ""}
 
