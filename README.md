@@ -1,5 +1,19 @@
 # MaNDoS
-Markdown Note Display Server
+M(Markdown)aN(Note)D(Display)oS(Server) is a minimal and fast web server for creating powerful markdown based wikis, digital gardens, blogs, documentations and more.
+
+## Table of Contents
+- [Quick Start](#quick-start)
+    - [Installation](#installation)
+    - [Creating a HTML Template](#creating-a-html-template)
+    - [Creating a Static Folder](#creating-a-static-folder)
+    - [Running The Server](#running-the-server)   
+- [Environment Variables](#environment-variables)
+- [Template Functions and Variables](#template-functions-and-variables)
+    - [Variables](#variables)
+    - [Functions](#functions)
+- [Solo Templates](#solo-templates)
+- [Database Tables](#database-tables)
+- [Comparison With Hugo](#comparison-with-hugo)
 
 ## Quick Start
 ### Installation
@@ -14,18 +28,18 @@ go build . && chmod +x ./mandos
 # Then you can execute the binary (Don't do that it yet)
 ./mandos
 
-# Or just use go run command (Don't do that it yet)
-go run .
+# Or you can just use go run command (Don't do that it yet)
+go -C /optional/path/to/mandos/code run .
 ```
 
 ### Creating a HTML Template
-Create a folder named `mandos` in your Markdown folder.**
+Create a folder named `mandos` in your Markdown folder.
 
 ```
 cd /path/to/markdown/folder && mkdir mandos
 ``` 
 
-Create a template named `main.html` within. This will be the default template used to serve the markdown files.
+Create a template named `main.html` within. This will be the default template used to serve the markdown files if no other one is specified.
 
 Example `main.html`:
 
@@ -37,13 +51,11 @@ Example `main.html`:
 </html>
 ```
 
-> `404.html` template will be used for 404 pages. If it does not exists, the default template will be used for that purpose.
-
-> You can create partials inside `mandos/partials` and use them with `{{Include partialName}}` inside the template.
-
-> Go to the `## Template Functions And Variables` section if you want to know more about what functions and variables you can use in a template file.
-
 You can create as many templates as you want within this folder. To use them, add a `template` field to the metadata part of your markdown note and set the value as the name of the template.
+
+- The template named `404.html` will be used for 404 pages. If it does not exists, the default template will be used for that purpose.
+- You can create partials inside `partials` directory in the template folder. To use them within other templates, use the `Include` function like this: `{{Include "example-partial.html"}}`
+
 
 Here is an example markdown file with `template`, `tags`, `date` and `public` metadata fields:
 ```md
@@ -56,6 +68,9 @@ public: true
 
 # My Markdown Note
 Hello there. This node will be served in the foo.html template with given tags and date.
+
+> This is a quoteblock with "test" class, "qb" id and custom styling. Mandos supports custom attributes!
+{.test #qb style="background:black;color:white;"}
 
 This line will be excluded if ONLY_PUBLIC=yes <!--exc-->
 
@@ -77,20 +92,19 @@ console.log("This script will be executed")
 > The metadata part must be at the top of the markdown file, and must be formatted as YAML, inside `---` blocks.
 
 ### Creating a static Folder
-You need to create a folder named `static` at the root of your Markdown folder.
+You need to create a folder named `static` at the root of your Markdown folder. Files in this folder will **always** be served. This is where you should place your CSS and JavaScript files.
 
 ```bash
 cd /path/to/markdown/folder && mkdir static
 ```
 
-- Files in this folder will **always** be served. This is where you should place your CSS and JavaScript files.
 - Non-markdown files inside other directories are only served if they are linked in a public markdown file.
 
-### 3 Run The Server
+### Running The Server
 Mandos uses environment variables for configuration. You can pass them directly like this:
 
 ```bash
-MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json CONTENT_SEARCH=true go -C /path/to/mandos run .
+MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json CONTENT_SEARCH=true mandos
 ```
 
 Or you can create a configuration file:
@@ -109,56 +123,56 @@ CONTENT_SEARCH=true
 Then pass them to Mandos like this:
 
 ``` bash
-env -S $(grep -v '^#' /etc/mandos/config.env) go -C /path/to/mandos run .
+env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 ```
 
-#### Evironment Variables
-##### MD_FOLDER
+## Evironment Variables
+### MD_FOLDER
 - **Usage:** `MD_FOLDER=/abs/path/to/markdown/folder`
 - **Description:** The folder to be used to serve the markdown nodes. The markdown files inside `static` or `mandos` folders, or the markdown files starting with dot will not be served regardless of the `ONLY_PUBLIC` value.
 - **Default:** Empty string. Will throw an error if not specified.
 
-##### INDEX
+### INDEX
 - **Usage:** `INDEX=index.md`
 - **Description:** The file to be served at the root path of the server (`/`). The default is 
 - **Default:** `index.md`
 
-##### ONLY_PUBLIC
+### ONLY_PUBLIC
 - **Usage:** `ONLY_PUBLIC=no`
 - **Description:** Serve the every non-hidden markdown file in the directory and consider all of them as `public`. Remove it if you just want to serve the `public` nodes. A markdown file is considered public if its `public` metadata field is set to `true`. Every non-markdown file a public markdown file links to will also be served. However, private markdown files a public one links to will not be served.
 - **Default:** `yes`
 
-##### MD_TEMPLATES
+### MD_TEMPLATES
 - **Usage:** `MD_TEMPLATES=/path/to/templates/folder`
 - **Description:** Set a custom template folder if you do not want to use the default `mandos` at the root of `MD_FOLDER`.
 - **Default:** `mandos` folder at the root of `MD_FOLDER`.
 
-##### SOLO_TEMPLATES
+### SOLO_TEMPLATES
 - **Usage:** `SOLO_TEMPLATES=rss.xml,node-list.json`
 - **Description:** The realtive paths of the files in `MD_FOLDER`, separated with commas, to make them solo templates.
 - **Default:** Empty string.
 
-##### CONTENT_SEARCH
+### CONTENT_SEARCH
 - **Usage:** `CONTENT_SEARCH=true`
 - **Description:** Enable searching through file contents using SQLite FTS5 virtual table.
 - **Default:** `false`, No index will be generated, resulting in smaller database file sizes.
 
-##### TRUSTED_PROXIES
-- **Usage:** `TRUSTED_PROXIES=192.168.1.3,10.1.10.1`
-- **Description:** A separated with comma list of trusted server ip addresses that are allowed to modify headers. This can be useful if your server is behind a load balancer or VPN, and you want to get the ip address of the real requester.
-- **Default:** Empty string.
-
-##### CACHE_FOLDER
+### CACHE_FOLDER
 - **Usage:** `CACHE_FOLDER=/abs/path/to/cache/folder`
 - **Description:** The location the SQLite database and other Mandos related files will be created.
 - **Default:** `mandos` directory inside user's default cache folder.
 
-##### CERT and KEY
+### CERT and KEY
 - **Usage:** `CERT=/abs/path/to/cert/file KEY=/abs/path/to/key/file`
 - **Description:** Used to run the server with TLS encryption.
 - **Default:** Ignored. The server will run in HTTP mode.
 
-##### RATE LIMITING
+### TRUSTED_PROXIES
+- **Usage:** `TRUSTED_PROXIES=192.168.1.3,10.1.10.1`
+- **Description:** A separated with comma list of trusted server ip addresses that are allowed to modify headers. This can be useful if your server is behind a load balancer or VPN, and you want to get the ip address of the real requester.
+- **Default:** Empty string.
+
+### RATE LIMITING
 - **Usage:** `MD_RATE_LIMIT_MAX=80 MD_RATE_LIMIT_EXPR=30 SOLO_RATE_LIMIT_MAX=25 SOLO_RATE_LIMIT_EXPR=45 ELSE_RATE_LIMIT_MAX=250 ELSE_RATE_LIMIT_EXPR=60`
 - **Description:** Set the rate limiting for markdown files, solo templates and anything else. MAX is the maximum number of recent connections during EXPR seconds before sending a 429 response.
 - **Default:** "0" for everything, meaning that no rate limiting is set.
@@ -412,10 +426,9 @@ WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 {{- end -}}]
 ```
 
-## Tables
-The sqlite contains 5 tables: "nodes", "outlinks", "attachments", "params" and "nodes_fts". It is possible to query nodes using these tables.
+## Database Tables
+The SQLite database contains five tables: `nodes`, `outlinks`, `attachments`, `params` and `nodes_fts`. It is possible to query nodes using these tables.
 
-### Nodes
 ```
 CREATE TABLE IF NOT EXISTS nodes (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -428,7 +441,6 @@ CREATE INDEX IF NOT EXISTS idx_node_file ON nodes(file);
 CREATE INDEX IF NOT EXISTS idx_node_date ON nodes(date);
 ```
 
-### Outlinks
 ```
 CREATE TABLE IF NOT EXISTS outlinks (
     "from" TEXT NOT NULL,
@@ -439,7 +451,6 @@ CREATE TABLE IF NOT EXISTS outlinks (
 CREATE INDEX IF NOT EXISTS idx_outlink_to ON outlinks("to");
 ```
 
-### Attachments
 ```
 CREATE TABLE IF NOT EXISTS attachments (
     "from" TEXT NOT NULL,
@@ -450,7 +461,6 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE INDEX IF NOT EXISTS idx_attachment_file ON attachments(file);
 ```
 
-### Params
 ```
 CREATE TABLE IF NOT EXISTS params (
     "from"  TEXT NOT NULL,
@@ -464,7 +474,6 @@ CREATE INDEX IF NOT EXISTS idx_params_from ON params("from");
 ```
 - If a parameter has multiple values, the values are saved in different rows with the same key.
 
-### Nodes_FTS
 ```
 CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
     title, content,
@@ -476,10 +485,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 
 ## Comparison With Hugo
 **No Full Rebuilds**
-- **Hugo:** As a static site generator, content changes often require a full rebuild. Build times increase as the website grows.
-- **Mandos:** Operates as a live server. Content changes are automatically indexed and served in real time. It utilizes incremental builds, eliminating the need for a full rebuild step. This is more efficient for large websites and frequent updates.
+- **Hugo:** As a static site generator, content changes can require a full rebuild, and build times will increase as the website grows.
+- **Mandos:** Operates as a live server. Content changes are automatically indexed and served in real time. It utilizes incremental builds, eliminating the need for a full rebuild step. This is more efficient than Hugo for large and/or dynamic websites.
 
-***Built-In Dynamic Querying**
+**Built-In Dynamic Querying**
 - **Hugo:** Only static content. External tools are required for dynamic queries and searches.
 - **Mandos:** Built on SQLite with optional FTS5 (Full-Text Search) support. This allows for complex SQL queries and robust content searching directly within the templates.
 
@@ -489,6 +498,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 
 **Serving Performance**
 - **Hugo:** Files are pre-rendered. The server only needs to deliver static files from storage. When combined with caching, it becomes really fast.
-- **Mandos:** Markdown is parsed on-the-fly, and content needs a small amount of processing before being served every time. However, LRU and TTL caches are utilized and the difference in terms of performance is minimal compared to Hugo.
+- **Mandos:** Markdown is parsed on-the-fly, and the content needs a small amount of processing before being served every time. However, LRU and TTL caches are utilized and the difference in terms of performance is minimal with Hugo.
 
-You should choose Hugo if you are unable to run a custom server, or just feel like it.
+**Learning Curve**
+- **Hugo:** Hugo has a very large documentation and a bloated list of functions and variables. It can be easy to start if you use a default theme, however it gets really difficult when you decide to create your own.
+- **Mandos:** It's easier to get started from scratch and express your own style with flexibility.
+
+You should choose Hugo if you are unable to run a custom server, your content is mostly static, or you just feel like it. If the content constantly changes, it is better to choose Mandos.
