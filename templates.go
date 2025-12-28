@@ -43,6 +43,9 @@ var templateFuncs = template.FuncMap{
 	"GetNodeContent": GetNodeContent,
 	"GetContentMatch": GetContentMatch,
 
+	"GetFileContent": GetFileContent,
+	"WriteFileContent": WriteFileContent,
+
 	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
 
 	"GetEnv": getEnvValue,
@@ -171,4 +174,15 @@ func FormatDateInt(integer any, layout string) string {
 func StringReplacer(str string, oldNew ...string) string {
 	replacer := strings.NewReplacer(oldNew...)
 	return replacer.Replace(str)
+}
+
+func GetFileContent(filePath string) string {
+	contentBytes, err := os.ReadFile(filepath.Join(notesPath, filePath))
+	if err!=nil{log.Println("GetFileContent error:",filePath, err); return ""}
+	return string(contentBytes)
+}
+func WriteFileContent(filePath, content string) bool {
+	err := os.WriteFile(filepath.Join(notesPath, filePath), []byte(content), 0644)
+	if err!=nil{log.Println("WriteFileContent error:",filePath, err); return false}
+	return true
 }

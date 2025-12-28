@@ -1,5 +1,5 @@
 # MaNDoS
-M(Markdown)aN(Note)D(Display)oS(Server) is a minimal and fast web server for creating powerful markdown based wikis, digital gardens, blogs, documentations and more.
+MaNDoS is a fast "CMSish" web server built for creating powerful markdown based wikis, digital gardens, blogs, documentations and more. With a flexible templating system, it allows you to generate beautiful note views, RSS feeds, JSON APIs, and even interactive guestbooks directly from your Markdown folder.
 
 ## Table of Contents
 - [Quick Start](#quick-start)
@@ -104,7 +104,7 @@ cd /path/to/markdown/folder && mkdir static
 Mandos uses environment variables for configuration. You can pass them directly like this:
 
 ```bash
-MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json CONTENT_SEARCH=true mandos
+MD_FOLDER=/path/to/markdown/folder INDEX=index.md ONLY_PUBLIC=no MD_TEMPLATES=/path/to/templates/folder SOLO_TEMPLATES=rss.xml,node-list.json,api/comment-guestbook RATE_LIMIT=api/comment-guestbook:600:3 CONTENT_SEARCH=true mandos
 ```
 
 Or you can create a configuration file:
@@ -127,6 +127,8 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 ```
 
 ## Evironment Variables
+<details><summary>10 Environment Variables</summary>
+
 ### MD_FOLDER
 - **Usage:** `MD_FOLDER=/abs/path/to/markdown/folder`
 - **Description:** The folder to be used to serve the markdown nodes. The markdown files inside `static` or `mandos` folders, or the markdown files starting with dot will not be served regardless of the `ONLY_PUBLIC` value.
@@ -149,7 +151,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 
 ### SOLO_TEMPLATES
 - **Usage:** `SOLO_TEMPLATES=rss.xml,node-list.json`
-- **Description:** The realtive paths of the files in `MD_FOLDER`, separated with commas, to make them solo templates.
+- **Description:** The relative paths of the files in `MD_FOLDER`, separated with commas. These files will be used as solo templates.
 - **Default:** Empty string.
 
 ### CONTENT_SEARCH
@@ -172,16 +174,24 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 - **Description:** A separated with comma list of trusted server ip addresses that are allowed to modify headers. This can be useful if your server is behind a load balancer or VPN, and you want to get the ip address of the real requester.
 - **Default:** Empty string.
 
-### RATE LIMITING
-- **Usage:** `MD_RATE_LIMIT_MAX=80 MD_RATE_LIMIT_EXPR=30 SOLO_RATE_LIMIT_MAX=25 SOLO_RATE_LIMIT_EXPR=45 ELSE_RATE_LIMIT_MAX=250 ELSE_RATE_LIMIT_EXPR=60`
-- **Description:** Set the rate limiting for markdown files, solo templates and anything else. MAX is the maximum number of recent connections during EXPR seconds before sending a 429 response.
-- **Default:** "0" for everything, meaning that no rate limiting is set.
-- **Warning:** Set `TRUSTED_PROXIES` if you are behind another server.
+### RATE_LIMIT
+- **Usage:** `RATE_LIMIT=!md:80:80,!att:80:80,solotemp1.json:80:45,solotemp2.txt:20:45`
+- **Description:** Comma separated list of items for rate limiting endpoints. Each item is separated to three parts. The first one is can be `!md`, `!att` or the solo templates given in `SOLO_TEMPLATES`. `!md` is for all the markdown files and `!att` is for all attachments and static files. The second part is the expiration time of the limit in seconds, and the last part is the maximum number of recent connections during "expiration seconds" before sending a 429 response.
+- **Default:** No rate limit is applied.
+- **Warning:** Set `TRUSTED_PROXIES` if you are behind an another server.
+</details>
 
 ## Template Functions And Variables
 While the template functions can be used from any template, the scope of the variables differs.
 
 ### Variables
+<details><summary>11 Core Variables</summary>
+
+#### {{.AccessTime}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** The access time to the endpoint in Unix epoch.
+- **Type:** `int64`
+
 #### {{.Url}}
 - **Scope:** Both in markdown and solo templates.
 - **Description:** The full URL path including the query. Example: `https://example.com/search?q=something`
@@ -190,6 +200,11 @@ While the template functions can be used from any template, the scope of the var
 #### {{.Headers}}
 - **Scope:** Both in markdown and solo templates.
 - **Description:** The list of the headers of the request.
+- **Type:** `map[string]string`
+
+#### {{.Form}}
+- **Scope:** Solo templates in POST requests.
+- **Description:** The multipart form values of the post request.
 - **Type:** `map[string]string`
 
 #### {{.Params}}
@@ -229,8 +244,11 @@ While the template functions can be used from any template, the scope of the var
 - **Scope:** Only in markdown templates.
 - **Description:** The list of non-markdown files this file has links to.
 - **Type:**  `[]string`
+</details>
 
 ### Functions
+<details><summary>16 Core Functions</summary>
+
 #### {{Add int int}}
 - **Scope:** Both in markdown and solo templates.
 - **Description:** Add second parameter to the first.
@@ -328,13 +346,25 @@ While the template functions can be used from any template, the scope of the var
 - **Warning:** Always pass the values using the second parameter.
 - **Usage:** See the examples below.
 
+#### {{GetFileContent string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Get the real content of any file in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns nothing if file is empty or does not exists. Use carefully.
+- **Return:** `string`
+- **Usage:** `{{GetFileContent "/guestbook.txt"}}`
+
+#### {{WriteFileContent string string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Write to any file in `MD_FOLDER` and create if it does not exists. The first parameter must be the absolute file location, considering `MD_FOLDER` as root. The second parameter must be the new file content. It returns `true` if the write is successful. Use carefully.
+- **Return:** `bool`
+- **Usage:** `{{WriteFileContent "/guestbook.txt" ("New line at the top\n" + $oldContent)}}`
+
 ## Solo Templates
-A solo template is a non-markdown file that can execute the template functions inside, when you navigate to its endpoint. These files can be used to, for example, create an RSS feed.
+A solo template is a non-markdown file that can execute the template functions and serve the results to GET and POST requests. These files can be used to, for example, generate an RSS feed, create a comment or delete a markdown file.
 
-- You need to link the solo template in a markdown file to be able to serve it.
 - The solo templates needs to be outside of the `static` folder, and they cannot be a markdown file.
+- If the request method is POST, you can access to the form values in solo templates.
 
-Here is an example `nodes.json` file to create a node list in json format. It can allow you to create cool useless graphs like the ones in Obsidian.
+An example `nodes.json` file to create a node list in json format. It can allow you to create cool useless graphs like the ones in Obsidian.
 ```
 {{- $query := `WITH TargetNodes AS (
 	SELECT n.file, n.date, n.title
@@ -386,7 +416,7 @@ LEFT JOIN TagsAgg AS par ON tn.file = par."from" LEFT JOIN OutlinksAgg AS ol ON 
 ]
 ```
 
-And here is an example `rss.xml` file to create an RSS feed.
+An example `rss.xml` file to create an RSS feed.
 ```
 {{- $query := `SELECT file, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
 <?xml version="1.0" encoding="UTF-8" ?>
@@ -406,7 +436,7 @@ And here is an example `rss.xml` file to create an RSS feed.
 </channel></rss>
 ```
 
-Finally, here is an example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
+An example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
 ```
 {{- $query := `SELECT n.file, n.date, n.title
 FROM nodes n JOIN nodes_fts f ON n.id = f.rowid
@@ -425,6 +455,19 @@ WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 
 {{- end -}}]
 ```
+
+An example `api/comment-guestbook` file to append a text to the `guestbook.txt` file.
+```
+{{- $oldContent := GetFileContent "/guestbook.txt" -}}
+{{- $author := ReplaceStr (index .Form "author") "\n" `\n` -}}
+{{- $comment := ReplaceStr (index .Form "comment") "\n" `\n` -}}
+{{- if and (ne $comment "") (ne $author "") -}}
+	{{- $inserted := WriteFileContent "/guestbook.txt" (printf "%s: %s\n%s\n%s" (FormatDateInt .AccessTime "02-Jan-2006") $author $comment $oldContent) -}}
+{{- else -}}
+Comment or author name is not given.
+{{- end -}}
+```
+- To prevent spam, set a rate limiter for this endpoint like this: `RATE_LIMIT=api/comment-guestbook:600:3`. It only allows 3 requests within 600 seconds (5 minutes).
 
 ## Database Tables
 The SQLite database contains five tables: `nodes`, `outlinks`, `attachments`, `params` and `nodes_fts`. It is possible to query nodes using these tables.

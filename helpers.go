@@ -35,14 +35,6 @@ func getEnvValue(key string)string{
 
 	//The location of the templates. Relative to the MD_FOLDER. Default is mandos.
 	case "MD_TEMPLATES": envValues[key]=path.Join(getNotesPath(), "mandos"); return envValues[key]
-
-	case "MD_RATE_LIMIT_MAX": envValues[key]="0"; return envValues[key]
-	case "MD_RATE_LIMIT_EXPR": envValues[key]="0"; return envValues[key]
-	case "SOLO_RATE_LIMIT_MAX": envValues[key]="0"; return envValues[key]
-	case "SOLO_RATE_LIMIT_EXPR": envValues[key]="0"; return envValues[key]
-	case "ELSE_RATE_LIMIT_MAX": envValues[key]="0"; return envValues[key]
-	case "ELSE_RATE_LIMIT_EXPR": envValues[key]="0"; return envValues[key]
-
 	}
 	return ""
 }

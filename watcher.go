@@ -68,19 +68,19 @@ func watchFileChanges() {
 				}else if mdTemplates[relPath] != nil{
 					scheduleLoad(event.Name,func(){
 						loadTemplate(relPath,"md")
-						log.Println("A template has been reloaded: ",relPath)
+						log.Println("A markdown template has been reloaded: ",relPath)
 					})
 
 				}else if partialTemplates[relPath] != nil{
 					scheduleLoad(event.Name,func(){
 						loadTemplate(relPath,"partial")
-						log.Println("A template has been reloaded: ",relPath)
+						log.Println("A partial template has been reloaded: ",relPath)
 					})
 				// Reload solo templates if the changed file was a solo template.
 				}else if soloTemplates[relPath] != nil{
 					scheduleLoad(event.Name,func(){
 						loadTemplate(relPath,"solo")
-						log.Println("A template has been reloaded: ",relPath)
+						log.Println("A solo template has been reloaded: ",relPath)
 					})
 				}
 
