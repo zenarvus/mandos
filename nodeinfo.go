@@ -16,7 +16,8 @@ type Node struct {
 	Attachments []string // Local non-markdown links in a node.
 }
 
-var linkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)|<[^>]+src="/([^"?#]+)[^>]`) // Extract internal markdown links or internal html links inside src. Do not capture after ? or #
+var mdLinkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)`) // Extract internal markdown links. Do not capture after ? or #
+var htmlSrcRe = regexp.MustCompile(`<[^>]+src="/([^"?#]+)[^>]`) // Extract internal html links inside src. Do not capture after ? or #
 func getNodeInfo(nodeId string, onlyContent bool) (nodeinfo Node, err error) {
 	data, err := os.ReadFile(filepath.Join(notesPath, nodeId)); if err != nil {return nodeinfo, err};
 
@@ -39,16 +40,16 @@ func getNodeInfo(nodeId string, onlyContent bool) (nodeinfo Node, err error) {
 		}
 
 		// Run the link finding regexp if the line contains "](" or "src="
-		if !onlyContent && ( bytes.Contains(line, []byte("](")) || bytes.Contains(line, []byte("src=")) ){
-			for _,match := range linkRe.FindAllSubmatch(line,-1) {
-				var path string
-    			if len(match[1]) > 0 { // If it's the capture group 1 (markdown link matching)
-        			path = string(match[1])
-    			} else if len(match) > 2 && len(match[2]) > 0 { // If it's the capture group 2 (html src matching)
-        			path = string(match[2])
-    			}
+		if !onlyContent && bytes.Contains(line, []byte("](")){
+			for _,match := range mdLinkRe.FindAllSubmatch(line,-1) {
 				// The link should start with a slash and the link path must consider notesPath as root. It should not be an absolute path or relative path inside the file system.
-				linkMap[filepath.Join("/", path)] = struct{}{}
+				linkMap[filepath.Join("/", string(match[1]))] = struct{}{}
+			}
+		}
+		if !onlyContent && bytes.Contains(line, []byte("src=")) {
+			for _,match := range htmlSrcRe.FindAllSubmatch(line,-1) {
+				// The link should start with a slash and the link path must consider notesPath as root. It should not be an absolute path or relative path inside the file system.
+				linkMap[filepath.Join("/", string(match[1]))] = struct{}{}
 			}
 		}
 
@@ -166,7 +167,6 @@ func GetContentMatch(content string, searchQuery string, window int) string {
 			// Find the byte offset of the token
 			idx := strings.Index(lowerLine, token)
 			if idx == -1 { continue } // If the token does not exists in the line, skip the token.
-
 			tokensInThisLine++ // If its found, increase token count in the line.
 			
 			// Track the outer boundaries (in bytes) of all found tokens in this line

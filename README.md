@@ -1,5 +1,5 @@
 # MaNDoS
-MaNDoS is a fast "CMSish" web server built for creating powerful markdown based wikis, digital gardens, blogs, documentations and more. With a flexible templating system, it allows you to generate beautiful note views, RSS feeds, JSON APIs, and even interactive guestbooks directly from your Markdown folder.
+MaNDoS is a CMS server built for creating powerful markdown based wikis, digital gardens, blogs, documentations and more. With a flexible templating system, it allows you to generate beautiful note views, RSS feeds, JSON APIs, and even interactive guestbooks directly from your Markdown folder.
 
 ## Table of Contents
 - [Quick Start](#quick-start)
@@ -152,7 +152,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 ### SOLO_TEMPLATES
 - **Usage:** `SOLO_TEMPLATES=rss.xml,node-list.json`
 - **Description:** The relative paths of the files in `MD_FOLDER`, separated with commas. These files will be used as solo templates.
-- **Default:** Empty string.
+- **Default:** No solo template.
 
 ### CONTENT_SEARCH
 - **Usage:** `CONTENT_SEARCH=true`
@@ -169,43 +169,43 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 - **Description:** Used to run the server with TLS encryption.
 - **Default:** Ignored. The server will run in HTTP mode.
 
-### TRUSTED_PROXIES
-- **Usage:** `TRUSTED_PROXIES=192.168.1.3,10.1.10.1`
-- **Description:** A separated with comma list of trusted server ip addresses that are allowed to modify headers. This can be useful if your server is behind a load balancer or VPN, and you want to get the ip address of the real requester.
-- **Default:** Empty string.
+### BEHIND_PROXY
+- **Usage:** `BEHIND_PROXY=true`
+- **Description:** If it's set to true, the server will look at the `X-Forwarded-For` header for the IP addresses. Useful if you are behind a trusted gateway server (e.g. a load balancer). Do not forget to set this header inside your proxy server.
+- **Default:** Not behind a proxy.
 
 ### RATE_LIMIT
 - **Usage:** `RATE_LIMIT=!md:80:80,!att:80:80,solotemp1.json:80:45,solotemp2.txt:20:45`
 - **Description:** Comma separated list of items for rate limiting endpoints. Each item is separated to three parts. The first one is can be `!md`, `!att` or the solo templates given in `SOLO_TEMPLATES`. `!md` is for all the markdown files and `!att` is for all attachments and static files. The second part is the expiration time of the limit in seconds, and the last part is the maximum number of recent connections during "expiration seconds" before sending a 429 response.
 - **Default:** No rate limit is applied.
-- **Warning:** Set `TRUSTED_PROXIES` if you are behind an another server.
+- **Warning:** Set `BEHIND_PROXY` if you are behind an another server.
+
+### LOGGING
+- **Usage:** `LOGGING=true`
+- **Description:** Enable request logging and print IP addresses with access paths to STDOUT.
+- **Default:** No logging.
 </details>
 
 ## Template Functions And Variables
 While the template functions can be used from any template, the scope of the variables differs.
 
 ### Variables
-<details><summary>11 Core Variables</summary>
+<details><summary>10 Core Variables</summary>
 
-#### {{.AccessTime}}
+#### {{.Now}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** The access time to the endpoint in Unix epoch.
+- **Description:** The current time in Unix epoch.
 - **Type:** `int64`
+
+#### {{.Ctx}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** See [Fiber CTX](https://docs.gofiber.io/api/ctx). It is not recommended to call `c.Send` or anything that writes a response to the requester. You should use it carefully.
+- **Type:** `*fiber.Ctx`
 
 #### {{.Url}}
 - **Scope:** Both in markdown and solo templates.
 - **Description:** The full URL path including the query. Example: `https://example.com/search?q=something`
 - **Type:** `string`
-
-#### {{.Headers}}
-- **Scope:** Both in markdown and solo templates.
-- **Description:** The list of the headers of the request.
-- **Type:** `map[string]string`
-
-#### {{.Form}}
-- **Scope:** Solo templates in POST requests.
-- **Description:** The multipart form values of the post request.
-- **Type:** `map[string]string`
 
 #### {{.Params}}
 - **Scope:** Only in markdown templates.
@@ -247,7 +247,7 @@ While the template functions can be used from any template, the scope of the var
 </details>
 
 ### Functions
-<details><summary>16 Core Functions</summary>
+<details><summary>20 Core Functions</summary>
 
 #### {{Add int int}}
 - **Scope:** Both in markdown and solo templates.
@@ -265,7 +265,13 @@ While the template functions can be used from any template, the scope of the var
 - **Scope:** Both in markdown and solo templates.
 - **Description:** Convert `any` golang type to string using `fmt.Sprint`
 - **Return:** `string`
-- **Usage:** `{{Add 100}} (Result: "100")`
+- **Usage:** `{{ToStr 100}} (Result: "100")`
+
+#### {{ToInt string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Convert a string to integer. The first returned value is the converted integer. The second value is returned error in conversion. It's `nil` if the conversation was successful.
+- **Return:** `int, error`
+- **Usage:** `{{ToInt "100"}} (Result: 100, nil)`
 
 #### {{ToHtml any}}
 - **Scope:** Both in markdown and solo templates.
@@ -329,7 +335,7 @@ While the template functions can be used from any template, the scope of the var
 
 #### {{GetNodeContent string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Get the raw markdown content of the given node, excluding the metadata.
+- **Description:** Get the raw markdown content of the given node, excluding the metadata and excluded lines.
 - **Return:** `string`
 - **Usage:** `{{GetNodeContent "/index.md"}}`
 
@@ -339,24 +345,30 @@ While the template functions can be used from any template, the scope of the var
 - **Return:** `string`
 - **Usage:** See the `search.json` example below.
 
-#### {{GetRows string []any}}
+#### {{Query string []any}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Make a SQLite query using the first parameter with values in second parameter. Return a slice of maps where keys are the selected columns and values are the values of these columns. You can iterate through them using `{{range (GetRows...)}}...{{end}}`.
+- **Description:** Make a SQLite query using the first parameter with values in second parameter. Return a slice of maps where keys are the selected columns and values are the values of these columns. It returns nothing if its not a SELECT query. You can iterate through them using `{{range (Query...)}}...{{end}}`.
 - **Return:** `[]map[string]any`
 - **Warning:** Always pass the values using the second parameter.
 - **Usage:** See the examples below.
 
-#### {{GetFileContent string}}
+#### {{ReadFile string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Get the real content of any file in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns nothing if file is empty or does not exists. Use carefully.
+- **Description:** Get the real content of any file in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns nothing if file is empty or does not exists. If `WriteFileContent` runs at the same time, it waits for write before reading. 
 - **Return:** `string`
-- **Usage:** `{{GetFileContent "/guestbook.txt"}}`
+- **Usage:** `{{$content := ReadFile "/guestbook.txt"}}`
 
-#### {{WriteFileContent string string}}
+#### {{WriteFile string string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Write to any file in `MD_FOLDER` and create if it does not exists. The first parameter must be the absolute file location, considering `MD_FOLDER` as root. The second parameter must be the new file content. It returns `true` if the write is successful. Use carefully.
+- **Description:** Write to any file in `MD_FOLDER` and create if it does not exists. The first parameter must be the absolute file location, considering `MD_FOLDER` as root. It creates the sub folders if they do not exist. The second parameter must be the new file content. It returns `true` if the write is successful. Use with `ReadFile` instead of `GetNodeContent` if you are going to do a read & write operation. `GetNodeContent` does not wait for write to finish and it can result in corrupted files.
 - **Return:** `bool`
-- **Usage:** `{{WriteFileContent "/guestbook.txt" ("New line at the top\n" + $oldContent)}}`
+- **Usage:** `{{WriteFile "/guestbook.txt" ("New line at the top\n" + $content)}}`
+
+#### {{DeleteFile string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Delete any file or folder in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns `true` if the delete is successful.
+- **Return:** `bool`
+- **Usage:** `{{DeleteFile "/old_guestbook.txt"}}`
 </details>
 
 ## Solo Templates
@@ -367,7 +379,7 @@ A solo template is a non-markdown file that can execute the template functions a
 
 An example `nodes.json` file to create a node list in json format. It can allow you to create cool useless graphs like the ones in Obsidian.
 ```
-{{- $query := `WITH TargetNodes AS (
+{{- $queryStr := `WITH TargetNodes AS (
 	SELECT n.file, n.date, n.title
 	FROM nodes AS n
 		
@@ -386,7 +398,7 @@ SELECT tn.file, tn.date, tn.title, par.params_str, ol.outlinks_str
 FROM TargetNodes AS tn
 LEFT JOIN TagsAgg AS par ON tn.file = par."from" LEFT JOIN OutlinksAgg AS ol ON tn.file = ol."from";` -}}
 
-{{- $results := (GetRows $query (AnyArr))  -}}
+{{- $results := (Query $queryStr (AnyArr))  -}}
 {{- $listLen := len $results -}}
 
 [
@@ -419,13 +431,13 @@ LEFT JOIN TagsAgg AS par ON tn.file = par."from" LEFT JOIN OutlinksAgg AS ol ON 
 
 An example `rss.xml` file to create an RSS feed.
 ```
-{{- $query := `SELECT file, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
+{{- $queryStr := `SELECT file, date, title FROM nodes WHERE date > 0 ORDER BY date DESC ;` -}}
 <?xml version="1.0" encoding="UTF-8" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
 <title>Zenarvus</title>
 <link>https://v.oid.sh/rss.xml</link>
 <description>My second brain on the web.</description>
-{{- range (GetRows $query (AnyArr)) -}}
+{{- range (Query $queryStr (AnyArr)) -}}
 
 <item>
 <title>{{.title}}</title>
@@ -439,12 +451,12 @@ An example `rss.xml` file to create an RSS feed.
 
 An example `search.json` to search file contents based on the value of the query parameter `q`. (CONTENT_SEARCH must be true)
 ```
-{{- $query := `SELECT n.file, n.date, n.title
+{{- $queryStr := `SELECT n.file, n.date, n.title
 FROM nodes n JOIN nodes_fts f ON n.id = f.rowid
 WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 {{- $urlQ := (UrlParse .Url).Query.Get `q` -}}
 
-{{- $results := (GetRows $query (AnyArr $urlQ)) -}}
+{{- $results := (Query $queryStr (AnyArr $urlQ)) -}}
 {{- $listLen := len $results -}}
 
 [{{- range $i, $v := $results -}}
@@ -459,16 +471,17 @@ WHERE nodes_fts MATCH ? ORDER BY bm25(nodes_fts, 10.0, 1.0) ASC LIMIT 20;` -}}
 
 An example `api/comment-guestbook` file to append a text to the `guestbook.txt` file.
 ```
-{{- $oldContent := GetFileContent "/guestbook.txt" -}}
-{{- $author := ReplaceStr (index .Form "author") "\n" `\n` -}}
-{{- $comment := ReplaceStr (index .Form "comment") "\n" `\n` -}}
+{{- $oldContent := ReadFile "/guestbook.txt" -}}
+{{- $author := ReplaceStr (.Ctx.FormValue "author") "\n" `\n` -}}
+{{- $comment := ReplaceStr (.Ctx.FormValue "comment") "\n" `\n` -}}
 {{- if and (ne $comment "") (ne $author "") -}}
-	{{- $inserted := WriteFileContent "/guestbook.txt" (printf "%s: %s\n%s\n%s" (FormatDateInt .AccessTime "02-Jan-2006") $author $comment $oldContent) -}}
+	{{- WriteFile "/guestbook.txt" (printf "%s: %s\n%s\n\n%s" (FormatDateInt .Now "02-Jan-2006") $author $comment $oldContent) -}}
 {{- else -}}
+{{ .Ctx.Status 400 }}
 Comment or author name is not given.
 {{- end -}}
 ```
-- To prevent spam, set a rate limiter for this endpoint like this: `RATE_LIMIT=api/comment-guestbook:600:3`. It only allows 3 requests within 600 seconds (5 minutes).
+- To prevent spam, set a rate limiter for this endpoint like: `RATE_LIMIT=api/comment-guestbook:600:3`. It only allows 3 requests within 600 seconds (5 minutes).
 
 ## Database Tables
 The SQLite database contains five tables: `nodes`, `outlinks`, `attachments`, `params` and `nodes_fts`. It is possible to query nodes using these tables.

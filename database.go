@@ -323,7 +323,7 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (count int) {
 }
 
 // Execute the queryStr with queryVals values, then return the rows in []map[string]any where key is the column name and value is the column value.
-func GetRows(queryStr string, queryVals []any) (returnData []map[string]any) {
+func Query(queryStr string, queryVals []any) (returnData []map[string]any) {
 	// Prefer the cached data.
 	returnData, exists := queryCache.Get(GetQueryKey(queryStr, queryVals...))
 	if exists {return returnData}
@@ -354,8 +354,10 @@ func GetRows(queryStr string, queryVals []any) (returnData []map[string]any) {
 		returnData = append(returnData, rowMap)
 	}
 
-	// Cache the returned data.
-	queryCache.Set(GetQueryKey(queryStr, queryVals...), returnData, time.Second*10)
+	// Cache the returned data if not empty.
+	if len(returnData) > 0 {
+		queryCache.Set(GetQueryKey(queryStr, queryVals...), returnData, time.Second*10)
+	}
 
 	return returnData
 }

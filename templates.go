@@ -3,13 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"sync"
+	"hash/fnv"
 	"log"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -27,9 +29,10 @@ var templateFuncs = template.FuncMap{
 	"Sub":func(x,y int)int{return x-y},
 
 	"ToStr":ToStr,
+	"ToInt": ToInt,
 	"ToHtml": ToHtml,
 
-	"GetRows": GetRows,
+	"Query": Query,
 
 	"ReplaceStr": StringReplacer,
 	"Contains": strings.Contains,
@@ -44,8 +47,9 @@ var templateFuncs = template.FuncMap{
 	"GetNodeContent": GetNodeContent,
 	"GetContentMatch": GetContentMatch,
 
-	"GetFileContent": GetFileContent,
-	"WriteFileContent": WriteFileContent,
+	"ReadFile": ReadFile,
+	"WriteFile": WriteFile,
+	"DeleteFile": DeleteFile,
 
 	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
 
@@ -162,6 +166,11 @@ func Split(str any, sepr string) []string {
 func ToStr(input any) string {
 	return fmt.Sprint(input)
 }
+func ToInt(input string) (int, error) {
+	i, err := strconv.Atoi(input)
+	if err!=nil{log.Println("ToInt fail:", err); return 0, err}
+	return i, err
+}
 
 func FormatDateInt(integer any, layout string) string {
 	if unixDate,ok := integer.(int64); !ok {
@@ -177,17 +186,60 @@ func StringReplacer(str string, oldNew ...string) string {
 	return replacer.Replace(str)
 }
 
-func GetFileContent(filePath string) string {
-	contentBytes, err := os.ReadFile(filepath.Join(notesPath, filePath))
-	if err!=nil{log.Println("GetFileContent error:",filePath, err); return ""}
-	return string(contentBytes)
-}
-var fileLock sync.Mutex
-func WriteFileContent(filePath, content string) bool {
-	fileLock.Lock() // Prevent file writing while we are doing it.
-    defer fileLock.Unlock() // Unlock the lock
+//////////////////////// FILE READ-WRITE and DELETE /////////////////////////////////
 
-	err := os.WriteFile(filepath.Join(notesPath, filePath), []byte(content), 0644)
-	if err!=nil{log.Println("WriteFileContent error:",filePath, err); return false}
+// RWMutes is used to allow mutliple readings at the same time, while preventing reads while writing.
+const shardCount = 64
+type StripedLock struct {
+	shards [shardCount]sync.RWMutex
+}
+var fileLocks StripedLock
+
+// getShard picks a lock based on the filename hash
+func (sl *StripedLock) getShard(key string) *sync.RWMutex {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	index := h.Sum32() % shardCount
+	return &sl.shards[index]
+}
+
+func ReadFile(filePath string) string {
+	lock := fileLocks.getShard(filePath)
+	lock.RLock()
+	defer lock.RUnlock()
+
+    contentBytes, err := os.ReadFile(filepath.Join(notesPath, filePath))
+    if err != nil {
+        log.Println("ReadFile error:", filePath, err)
+        return ""
+    }
+    return string(contentBytes)
+}
+
+func WriteFile(filePath, content string) bool {
+	lock := fileLocks.getShard(filePath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	folderPath := filepath.Dir(filePath)
+	if folderPath != "." {
+		err := os.MkdirAll(filepath.Join(notesPath, folderPath), 0755);
+		if err!=nil {
+			log.Fatalln("File directory could not be created.", err)
+			return false
+		}
+	}
+
+    err := os.WriteFile(filepath.Join(notesPath, filePath), []byte(content), 0644)
+    if err != nil {
+        log.Println("WriteFile error:", filePath, err)
+        return false
+    }
+    return true
+}
+
+func DeleteFile(relPath string) bool {
+	err := os.RemoveAll(filepath.Join(notesPath, relPath))
+	if err != nil {log.Println("DeleteFile error:", relPath, err); return false}
 	return true
 }
