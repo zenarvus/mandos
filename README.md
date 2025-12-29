@@ -357,6 +357,7 @@ While the template functions can be used from any template, the scope of the var
 - **Description:** Write to any file in `MD_FOLDER` and create if it does not exists. The first parameter must be the absolute file location, considering `MD_FOLDER` as root. The second parameter must be the new file content. It returns `true` if the write is successful. Use carefully.
 - **Return:** `bool`
 - **Usage:** `{{WriteFileContent "/guestbook.txt" ("New line at the top\n" + $oldContent)}}`
+</details>
 
 ## Solo Templates
 A solo template is a non-markdown file that can execute the template functions and serve the results to GET and POST requests. These files can be used to, for example, generate an RSS feed, create a comment or delete a markdown file.

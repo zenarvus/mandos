@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"log"
 	"net/url"
 	"os"
@@ -181,7 +182,11 @@ func GetFileContent(filePath string) string {
 	if err!=nil{log.Println("GetFileContent error:",filePath, err); return ""}
 	return string(contentBytes)
 }
+var fileLock sync.Mutex
 func WriteFileContent(filePath, content string) bool {
+	fileLock.Lock() // Prevent file writing while we are doing it.
+    defer fileLock.Unlock() // Unlock the lock
+
 	err := os.WriteFile(filepath.Join(notesPath, filePath), []byte(content), 0644)
 	if err!=nil{log.Println("WriteFileContent error:",filePath, err); return false}
 	return true
