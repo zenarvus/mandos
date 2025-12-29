@@ -1,5 +1,5 @@
 package main
-import ("fmt"; "log"; "os"; "path"; "path/filepath"; "strings"; "strconv"; "github.com/cespare/xxhash/v2";)
+import ("fmt"; "log"; "os"; "path"; "path/filepath"; "strings"; "unicode"; "unicode/utf8"; "bytes"; "strconv"; "github.com/cespare/xxhash/v2";)
 
 var notesPath = getNotesPath() //it does not and should not have a slash suffix.
 var onlyPublic = getEnvValue("ONLY_PUBLIC")
@@ -67,4 +67,100 @@ func GetQueryKey(query string, args ...any) string {
         h.Write([]byte(fmt.Sprintf("%v", arg)))
     }
     return fmt.Sprintf("%016x", h.Sum64())
+}
+
+func SafeJoin(basePath, relPath string) (string) {
+    // 1. Join and Clean the path in one go
+    // filepath.Join calls filepath.Clean, which resolves ".." and "."
+    finalPath := filepath.Join(basePath, relPath)
+
+    // 2. Simple prefix check
+    // We use filepath.Rel to ensure the path is truly a subpath. 
+    // This is more robust than strings.HasPrefix because it handles 
+    // cases like "/var/lib" vs "/var/lib-shortcut"
+    rel, err := filepath.Rel(basePath, finalPath)
+    if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
+        return ""
+    }
+
+    return finalPath
+}
+
+
+// Map of common unicode runes to ASCII replacements.
+var repl = map[rune]string{
+	'á': "a", 'à': "a", 'â': "a", 'ä': "a", 'ã': "a", 'å': "a",
+	'é': "e", 'è': "e", 'ê': "e", 'ë': "e",
+	'í': "i", 'ì': "i", 'î': "i", 'ï': "i", 'ı': "i",
+	'ó': "o", 'ò': "o", 'ô': "o", 'ö': "o", 'õ': "o",
+	'ú': "u", 'ù': "u", 'û': "u", 'ü': "u",
+	'ğ': "g", 'ñ': "n", 'ç': "c",
+	'ý': "y", 'ÿ': "y",
+	'þ': "th", 'ð': "d",
+	'æ': "ae", 'œ': "oe",
+}
+// Slugify converts input bytes to a slug bytes slice using sep (e.g., '-').
+// Result is lowercased ASCII; non-transliterable runes are removed or become sep.
+func Slugify(in []byte, sep byte) []byte {
+	if len(in) == 0 {return nil}
+	var out bytes.Buffer
+	out.Grow(len(in))
+	prevSep := false
+
+	for len(in) > 0 {
+		r, size := utf8.DecodeRune(in)
+		in = in[size:]
+
+		// ASCII fast-path
+		if r < utf8.RuneSelf {
+			switch {
+			case r >= 'A' && r <= 'Z':
+				out.WriteByte(byte(r + ('a' - 'A'))) // to lowercase
+				prevSep = false
+			case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+				out.WriteByte(byte(r))
+				prevSep = false
+			default:
+				if !prevSep && out.Len() > 0 {
+					out.WriteByte(sep)
+					prevSep = true
+				}
+			}
+			continue
+		} else {
+			// Transliterate common runes
+			if s, ok := repl[unicode.ToLower(r)]; ok {
+				// write transliteration as lowercase
+				out.WriteString(s)
+				prevSep = false
+				continue
+			}
+		}
+
+		// For letters in other scripts try to use unicode.IsLetter -> drop if not ASCII
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			// Attempt a naive decomposition: remove diacritics isn't cheap; drop unknown non-ASCII.
+			// To keep short and fast, we omit expensive normalization and treat as separator.
+			if !prevSep && out.Len() > 0 {
+				out.WriteByte(sep)
+				prevSep = true
+			}
+			continue
+		}
+
+		// Other runes -> separator
+		if !prevSep && out.Len() > 0 {
+			out.WriteByte(sep)
+			prevSep = true
+		}
+	}
+	// Trim trailing separator
+	b := out.Bytes()
+	if len(b) > 0 && b[len(b)-1] == sep { b = b[:len(b)-1] }
+	// Trim leading separator
+	if len(b) > 0 && b[0] == sep { b = b[1:] }
+	// Return a copy to ensure external mutation won't affect internal buffer
+	res := make([]byte, len(b))
+	copy(res, b)
+	return res
 }

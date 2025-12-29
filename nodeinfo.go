@@ -18,18 +18,22 @@ type Node struct {
 
 var mdLinkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)`) // Extract internal markdown links. Do not capture after ? or #
 var htmlSrcRe = regexp.MustCompile(`<[^>]+src="/([^"?#]+)[^>]`) // Extract internal html links inside src. Do not capture after ? or #
-func getNodeInfo(nodeId string, onlyContent bool) (nodeinfo Node, err error) {
-	data, err := os.ReadFile(filepath.Join(notesPath, nodeId)); if err != nil {return nodeinfo, err};
+func getNodeInfo(relPath string, onlyContent bool) (nodeinfo Node, err error) {
+
+	absPath := SafeJoin(notesPath, relPath)
+	if absPath==""{return nodeinfo,err}
+
+	data, err := os.ReadFile(absPath); if err != nil {return nodeinfo, err};
 
 	var inMeta bool
 	var inExcBlock bool
 	var metaBuf bytes.Buffer
 	var contentBuf bytes.Buffer
 	var linkMap = make(map[string]struct{})
-	nodeinfo.Title = nodeId
+	nodeinfo.Title = relPath
 	var gotTitle bool
 
-	nodeinfo.File = nodeId
+	nodeinfo.File = relPath
 
 	for line := range bytes.SplitSeq(data, []byte("\n")) {
 		// Exclude lines if ONLY_PUBLIC != "no"
@@ -90,7 +94,7 @@ func getNodeInfo(nodeId string, onlyContent bool) (nodeinfo Node, err error) {
 	// Parse the YAML metadata to fileinfo.Params
     if metaBuf.Len() != 0 {
         if err := yaml.Unmarshal(metaBuf.Bytes(), &nodeinfo.Params); err != nil {
-            return nodeinfo, fmt.Errorf("%s: %w", nodeId, err)
+            return nodeinfo, fmt.Errorf("%s: %w", relPath, err)
         }
     }
 

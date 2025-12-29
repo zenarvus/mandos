@@ -44,12 +44,23 @@ var templateFuncs = template.FuncMap{
 
 	"FormatDateInt": FormatDateInt,
 
+	"HasPrefix": strings.HasPrefix,
+	"HasSuffix": strings.HasSuffix,
+
+	"FilePathBase": filepath.Base,
+	"FilePathJoin": filepath.Join,
+
+	"Slugify": Slugify,
+
+	"IsInt64Valid": IsInt64Valid,
+
 	"GetNodeContent": GetNodeContent,
 	"GetContentMatch": GetContentMatch,
 
 	"ReadFile": ReadFile,
 	"WriteFile": WriteFile,
 	"DeleteFile": DeleteFile,
+	"FileExists": FileExists,
 
 	"UrlParse":func(urlStr string)*url.URL{parsed,_:=url.Parse(urlStr); return parsed},
 
@@ -166,10 +177,14 @@ func Split(str any, sepr string) []string {
 func ToStr(input any) string {
 	return fmt.Sprint(input)
 }
-func ToInt(input string) (int, error) {
+func ToInt(input string) (int64) {
 	i, err := strconv.Atoi(input)
-	if err!=nil{log.Println("ToInt fail:", err); return 0, err}
-	return i, err
+	if err!=nil{log.Println("ToInt fail:", err); return -9223372036854775808}
+	return int64(i)
+}
+func IsInt64Valid(integer int64)bool{
+	if integer == -9223372036854775808 {return false}
+	return true
 }
 
 func FormatDateInt(integer any, layout string) string {
@@ -204,11 +219,14 @@ func (sl *StripedLock) getShard(key string) *sync.RWMutex {
 }
 
 func ReadFile(filePath string) string {
-	lock := fileLocks.getShard(filePath)
+	absPath := SafeJoin(notesPath, filePath)
+	if absPath==""{return ""}
+
+	lock := fileLocks.getShard(absPath)
 	lock.RLock()
 	defer lock.RUnlock()
 
-    contentBytes, err := os.ReadFile(filepath.Join(notesPath, filePath))
+    contentBytes, err := os.ReadFile(absPath)
     if err != nil {
         log.Println("ReadFile error:", filePath, err)
         return ""
@@ -217,20 +235,23 @@ func ReadFile(filePath string) string {
 }
 
 func WriteFile(filePath, content string) bool {
-	lock := fileLocks.getShard(filePath)
+	absPath := SafeJoin(notesPath, filePath)
+	if absPath==""{return false}
+
+	lock := fileLocks.getShard(absPath)
 	lock.Lock()
 	defer lock.Unlock()
 
-	folderPath := filepath.Dir(filePath)
+	folderPath := filepath.Dir(absPath)
 	if folderPath != "." {
-		err := os.MkdirAll(filepath.Join(notesPath, folderPath), 0755);
+		err := os.MkdirAll(folderPath, 0755);
 		if err!=nil {
 			log.Fatalln("File directory could not be created.", err)
 			return false
 		}
 	}
 
-    err := os.WriteFile(filepath.Join(notesPath, filePath), []byte(content), 0644)
+    err := os.WriteFile(absPath, []byte(content), 0644)
     if err != nil {
         log.Println("WriteFile error:", filePath, err)
         return false
@@ -239,7 +260,20 @@ func WriteFile(filePath, content string) bool {
 }
 
 func DeleteFile(relPath string) bool {
-	err := os.RemoveAll(filepath.Join(notesPath, relPath))
+	absPath := SafeJoin(notesPath, relPath)
+	if absPath==""{return false}
+
+	err := os.Remove(absPath)
 	if err != nil {log.Println("DeleteFile error:", relPath, err); return false}
+	return true
+}
+
+func FileExists(filePath string)bool{
+	absPath := SafeJoin(notesPath, filePath)
+	if absPath==""{return false}
+
+	_,err := os.Stat(absPath)
+	if err!=nil{return false}
+
 	return true
 }

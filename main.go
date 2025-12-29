@@ -37,7 +37,8 @@ func main() {
 
 	app := fiber.New(fiberConfig)
 
-	initRoutes(app)
+	attExistStmt := initRoutes(app)
+	if attExistStmt != nil { defer attExistStmt.Close() }
 
 	var m runtime.MemStats; runtime.ReadMemStats(&m)
 	fmt.Printf("Memory Used: %.2f MiB\n", float64(m.Sys)/1024/1024)
@@ -51,7 +52,11 @@ func main() {
 		err := app.ListenTLS(":"+getEnvValue("PORT"),certFile,keyFile); if err!=nil{panic(err)}
 	}
 }
-func initRoutes(app *fiber.App){
+func initRoutes(app *fiber.App) *sql.Stmt {
+
+	noAttCheck := getEnvValue("NO_ATTACHMENT_CHECK") == "true"
+	// Prepare the attachment existence check statement.
+	attExistStmt,_ := DB.Prepare(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`)
 
 	if getEnvValue("LOGGING")=="true" {
 		app.Use(func(c *fiber.Ctx)error{ log.Println(c.IP(), c.Path()); return c.Next() })
@@ -199,21 +204,31 @@ func initRoutes(app *fiber.App){
 
 		// If the wanted file is not markdown
 		default:
-			// Prefer the cached attachment check.
-			attachment, exists := attachmentCache.Get(urlPath)
-			if !exists {
-				// Check if at least one node has a link to the attachment.
-				err := DB.QueryRow(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`, urlPath).Scan(&attachment)
-				if err != nil {
-					if err == sql.ErrNoRows { return c.SendStatus(404) }
-					log.Println("Database error:", err); return c.SendStatus(500)
+			// Sanitize the user given urlPath.
+			absPath := SafeJoin(notesPath, urlPath)
+			if absPath==""{return c.SendStatus(404)}
+			// If it is a hidden file, do not show it.
+			if strings.HasPrefix(filepath.Base(absPath), ".") {return c.SendStatus(404)} 
+
+			if !noAttCheck {
+				// Prefer the cached attachment existence value.
+				_, exists := attachmentExistenceCache.Get(absPath)
+				if !exists {
+					// Check if at least one node has a link to the attachment.
+					err := attExistStmt.QueryRow(urlPath).Scan(&urlPath)
+					if err != nil {
+						if err == sql.ErrNoRows { return c.SendStatus(404) }
+						log.Println("Database error:", err); return c.SendStatus(500)
+					}
+					attachmentExistenceCache.Set(absPath, struct{}{}, time.Second*30) // Save to the cache.
 				}
-				attachmentCache.Set(urlPath, urlPath, time.Second*30) // Save to the cache.
 			}
 
 			// If we reach here, the attachment is found.
 			c.Response().Header.Add("Cache-Control", "max-age=604800")
-			return c.SendFile(path.Join(notesPath, urlPath))
+			return c.SendFile(absPath)
 		}
 	})
+
+	return attExistStmt
 }

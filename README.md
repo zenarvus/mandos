@@ -99,6 +99,7 @@ cd /path/to/markdown/folder && mkdir static
 ```
 
 - Non-markdown files inside other directories are only served if they are linked in a public markdown file.
+- Hidden files (filenames starting with dot) are strictly not served. They can be used to store secret data about the server, and can be processed using `WriteFile`, `ReadFile` and `DeleteFile` options.
 
 ### Running The Server
 Mandos uses environment variables for configuration. You can pass them directly like this:
@@ -127,7 +128,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 ```
 
 ## Evironment Variables
-<details><summary>10 Environment Variables</summary>
+<details><summary>12 Environment Variables</summary>
 
 ### MD_FOLDER
 - **Usage:** `MD_FOLDER=/abs/path/to/markdown/folder`
@@ -143,6 +144,11 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 - **Usage:** `ONLY_PUBLIC=no`
 - **Description:** Serve the every non-hidden markdown file in the directory and consider all of them as `public`. Remove it if you just want to serve the `public` nodes. A markdown file is considered public if its `public` metadata field is set to `true`. Every non-markdown file a public markdown file links to will also be served. However, private markdown files a public one links to will not be served.
 - **Default:** `yes`
+
+### NO_ATTACHMENT_CHECK
+- **Usage:** `NO_ATTACHMENT_CHECK=true`
+- **Description:** By default, Mandos serves non-markdown files only if they have an inlink from markdown files. Enabling this option disables this check and can improve attachment serving performance.
+- **Default:** Empty string. Mandos checks if a non-markdown file contain an inlink before serving.
 
 ### MD_TEMPLATES
 - **Usage:** `MD_TEMPLATES=/path/to/templates/folder`
@@ -190,7 +196,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 While the template functions can be used from any template, the scope of the variables differs.
 
 ### Variables
-<details><summary>10 Core Variables</summary>
+<details><summary>11 Core Variables</summary>
 
 #### {{.Now}}
 - **Scope:** Both in markdown and solo templates.
@@ -247,7 +253,7 @@ While the template functions can be used from any template, the scope of the var
 </details>
 
 ### Functions
-<details><summary>20 Core Functions</summary>
+<details><summary>27 Core Functions</summary>
 
 #### {{Add int int}}
 - **Scope:** Both in markdown and solo templates.
@@ -269,9 +275,15 @@ While the template functions can be used from any template, the scope of the var
 
 #### {{ToInt string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Convert a string to integer. The first returned value is the converted integer. The second value is returned error in conversion. It's `nil` if the conversation was successful.
-- **Return:** `int, error`
-- **Usage:** `{{ToInt "100"}} (Result: 100, nil)`
+- **Description:** Convert a string to integer. The first returned value is the converted integer. If the conversation fails, it returns `-9223372036854775808` which is equal to `{{.InvalidInt64}}`
+- **Return:** `int64`
+- **Usage:** `{{ToInt "100"}} (Result: 100)`
+
+#### {{IsInt64Valid int64}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Check if an int64's value invalid. It returns `true` if the integer not equals to `-9223372036854775808`.
+- **Return:** `bool`
+- **Usage:** `{{IsInt64Valid 100}} (Result: true)`
 
 #### {{ToHtml any}}
 - **Scope:** Both in markdown and solo templates.
@@ -290,6 +302,36 @@ While the template functions can be used from any template, the scope of the var
 - **Description:** Check if the first parameter contains the second string
 - **Return:** `bool`
 - **Usage:** `{{Contains "Hello" "He"}} (Result: true)`
+
+#### {{HasPrefix string string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Check if the first parameter contains the second parameter as prefix.
+- **Return:** `bool`
+- **Usage:** `{{HasPrefix "Hello" "He"}} (Result: true)`
+
+#### {{HasSuffix string string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Check if the first parameter contains the second parameter as suffix.
+- **Return:** `bool`
+- **Usage:** `{{HasSuffix "Hello" "lo"}} (Result: true)`
+
+#### {{FilePathBase string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Get the filename from the given filepath.
+- **Return:** `string`
+- **Usage:** `{{FilePathBase "/this/is/a/long/path/.access-tokens"}} (Result: ".access-tokens")`
+
+#### {{FilePathJoin string...}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Merge given parameters to one path string and sanitize them.
+- **Return:** `string`
+- **Usage:** `{{FilePathJoin "/sub" "folder", "test.txt"}} (Result: "/sub/folder/text.txt")`
+
+#### {{Slugify string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Slugify the given string.
+- **Return:** `string`
+- **Usage:** `{{FilePathJoin "This Is A Title"}} (Result: "this-is-a-title")`
 
 #### {{DoubleSplitMap any string string}}
 - **Scope:** Both in markdown and solo templates.
@@ -352,9 +394,15 @@ While the template functions can be used from any template, the scope of the var
 - **Warning:** Always pass the values using the second parameter.
 - **Usage:** See the examples below.
 
+#### {{FileExists string}}
+- **Scope:** Both in markdown and solo templates.
+- **Description:** Check if a folder or file exists in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns `true` if file exists.
+- **Return:** `bool`
+- **Usage:** `{{$exists := FileExists "/guestbook.txt"}} (Result: true)`
+
 #### {{ReadFile string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Get the real content of any file in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns nothing if file is empty or does not exists. If `WriteFileContent` runs at the same time, it waits for write before reading. 
+- **Description:** Get the real content of any file in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns nothing if file is empty or does not exists. If `WriteFile` runs at the same time, it waits for write before reading. 
 - **Return:** `string`
 - **Usage:** `{{$content := ReadFile "/guestbook.txt"}}`
 
@@ -366,7 +414,7 @@ While the template functions can be used from any template, the scope of the var
 
 #### {{DeleteFile string}}
 - **Scope:** Both in markdown and solo templates.
-- **Description:** Delete any file or folder in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns `true` if the delete is successful.
+- **Description:** Delete any file or empty folder in `MD_FOLDER`. The given parameter must be the absolute file location, considering `MD_FOLDER` as root. It returns `true` if the delete is successful.
 - **Return:** `bool`
 - **Usage:** `{{DeleteFile "/old_guestbook.txt"}}`
 </details>
@@ -556,9 +604,5 @@ CREATE VIRTUAL TABLE IF NOT EXISTS nodes_fts USING fts5(
 **Serving Performance**
 - **Hugo:** Files are pre-rendered. The server only needs to deliver static files from storage. When combined with caching, it becomes really fast.
 - **Mandos:** Markdown is parsed on-the-fly, and the content needs a small amount of processing before being served every time. However, LRU and TTL caches are utilized and the difference in terms of performance is minimal with Hugo.
-
-**Learning Curve**
-- **Hugo:** Hugo has a very large documentation and a bloated list of functions and variables. It can be easy to start if you use a default theme, however it gets really difficult when you decide to create your own.
-- **Mandos:** It's easier to get started from scratch and express your own style with flexibility.
 
 You should choose Hugo if you are unable to run a custom server, your content is mostly static, or you just feel like it. If the content constantly changes, it is better to choose Mandos.
