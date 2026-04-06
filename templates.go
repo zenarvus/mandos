@@ -177,12 +177,12 @@ func Split(str any, sepr string) []string {
 func ToStr(input any) string {
 	return fmt.Sprint(input)
 }
-func ToInt(input string) (int64) {
+func ToInt(input string) (int) {
 	i, err := strconv.Atoi(input)
 	if err!=nil{log.Println("ToInt fail:", err); return -9223372036854775808}
-	return int64(i)
+	return i
 }
-func IsInt64Valid(integer int64)bool{
+func IsInt64Valid(integer int)bool{
 	if integer == -9223372036854775808 {return false}
 	return true
 }
@@ -219,7 +219,7 @@ func (sl *StripedLock) getShard(key string) *sync.RWMutex {
 }
 
 func ReadFile(filePath string) string {
-	absPath := SafeJoin(notesPath, filePath)
+	absPath := SafeJoin(filePath)
 	if absPath==""{return ""}
 
 	lock := fileLocks.getShard(absPath)
@@ -235,7 +235,7 @@ func ReadFile(filePath string) string {
 }
 
 func WriteFile(filePath, content string) bool {
-	absPath := SafeJoin(notesPath, filePath)
+	absPath := SafeJoin(filePath)
 	if absPath==""{return false}
 
 	lock := fileLocks.getShard(absPath)
@@ -260,7 +260,7 @@ func WriteFile(filePath, content string) bool {
 }
 
 func DeleteFile(relPath string) bool {
-	absPath := SafeJoin(notesPath, relPath)
+	absPath := SafeJoin(relPath)
 	if absPath==""{return false}
 
 	err := os.Remove(absPath)
@@ -269,7 +269,7 @@ func DeleteFile(relPath string) bool {
 }
 
 func FileExists(filePath string)bool{
-	absPath := SafeJoin(notesPath, filePath)
+	absPath := SafeJoin(filePath)
 	if absPath==""{return false}
 
 	_,err := os.Stat(absPath)

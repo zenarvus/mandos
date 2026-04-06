@@ -170,7 +170,7 @@ func initialSyncWithDB() {
 			if sqlNodeMtimes[relPath] != 0 { delete(sqlNodeMtimes, relPath) }
 
 		// TODO: This also skips the directories named "static" and "mandos" that are not in the root. Fix that.
-		}else if d.IsDir() && (d.Name() == "static" || d.Name() == "mandos") { return filepath.SkipDir }
+		}else if d.IsDir() && (d.Name() == "mandos") { return filepath.SkipDir }
 		return nil
 	})
 	if err != nil {fmt.Println("Error walking the path:", err)}
@@ -230,8 +230,6 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (count int) {
 				if err != nil {
 					log.Println("Error getting node info:", path, err); continue
 				}
-				// Skip the private nodes.
-				if !isServed(node.Public){continue}
 				// Update the node in the cache if exists, without moving it to forward.
 				nodeCache.Update(node.File, node)
 				jobs <- result{node: node, mtime: nodeIdMTimeMap[path]}
@@ -280,8 +278,11 @@ func upsertNodes(nodeIdMTimeMap map[string]int64) (count int) {
 
 		node,mtime := res.node,res.mtime
 
-		// Delete existing node.
+		// Delete existing node. This will also delete the private nodes.
 		if _, err := delNodes.Exec(node.File); err != nil { log.Println("Error deleting node:", node.File, err) }
+
+		// Skip the private nodes. We will not reinsert them.
+		if !isServed(node.Public){continue}
 
 		// Insert the node
 		result, err := stmtNode.Exec(node.File, mtime, node.Date, node.Title);

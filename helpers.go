@@ -69,20 +69,11 @@ func GetQueryKey(query string, args ...any) string {
     return fmt.Sprintf("%016x", h.Sum64())
 }
 
-func SafeJoin(basePath, relPath string) (string) {
-    // 1. Join and Clean the path in one go
-    // filepath.Join calls filepath.Clean, which resolves ".." and "."
-    finalPath := filepath.Join(basePath, relPath)
-
-    // 2. Simple prefix check
-    // We use filepath.Rel to ensure the path is truly a subpath. 
-    // This is more robust than strings.HasPrefix because it handles 
-    // cases like "/var/lib" vs "/var/lib-shortcut"
-    rel, err := filepath.Rel(basePath, finalPath)
-    if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
-        return ""
-    }
-
+func SafeJoin(relPath string) (string) {
+    // filepath.Join adds the relPath to notesPath, then resolves all of the ".." and ".". It also runs filepath.Clean
+    finalPath := filepath.Join(notesPath, relPath)
+	// finalPath can leak to the higher levels of basePath, we do not want that. So we need to check for prefix.
+	if !strings.HasPrefix(finalPath, notesPath+"/") {return ""} // notesPath does not contain "/" by itself. We add it to prevent confusion between things like /var/lib and /var/lib-other
     return finalPath
 }
 

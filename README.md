@@ -5,7 +5,6 @@ MaNDoS is a CMS server built for creating powerful markdown based wikis, digital
 - [Quick Start](#quick-start)
     - [Installation](#installation)
     - [Creating a HTML Template](#creating-a-html-template)
-    - [Creating a Static Folder](#creating-a-static-folder)
     - [Running The Server](#running-the-server)   
 - [Environment Variables](#environment-variables)
 - [Template Functions and Variables](#template-functions-and-variables)
@@ -13,7 +12,6 @@ MaNDoS is a CMS server built for creating powerful markdown based wikis, digital
     - [Functions](#functions)
 - [Solo Templates](#solo-templates)
 - [Database Tables](#database-tables)
-- [Comparison With Hugo](#comparison-with-hugo)
 
 ## Quick Start
 ### Installation
@@ -91,16 +89,6 @@ console.log("This script will be executed")
 
 > The metadata part must be at the top of the markdown file, and must be formatted as YAML, inside `---` blocks.
 
-### Creating a static Folder
-You need to create a folder named `static` at the root of your Markdown folder. Files in this folder will **always** be served. This is where you should place your CSS and JavaScript files.
-
-```bash
-cd /path/to/markdown/folder && mkdir static
-```
-
-- Non-markdown files inside other directories are only served if they are linked in a public markdown file.
-- Hidden files (filenames starting with dot) are strictly not served. They can be used to store secret data about the server, and can be processed using `WriteFile`, `ReadFile` and `DeleteFile` options.
-
 ### Running The Server
 Mandos uses environment variables for configuration. You can pass them directly like this:
 
@@ -132,7 +120,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 
 ### MD_FOLDER
 - **Usage:** `MD_FOLDER=/abs/path/to/markdown/folder`
-- **Description:** The folder to be used to serve the markdown nodes. The markdown files inside `static` or `mandos` folders, or the markdown files starting with dot will not be served regardless of the `ONLY_PUBLIC` value.
+- **Description:** The folder to be used to serve the markdown nodes. The markdown files inside the `mandos` folder, or the markdown files starting with a dot will not be served regardless of the `ONLY_PUBLIC` value.
 - **Default:** Empty string. Will throw an error if not specified.
 
 ### INDEX
@@ -142,13 +130,8 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 
 ### ONLY_PUBLIC
 - **Usage:** `ONLY_PUBLIC=no`
-- **Description:** Serve the every non-hidden markdown file in the directory and consider all of them as `public`. Remove it if you just want to serve the `public` nodes. A markdown file is considered public if its `public` metadata field is set to `true`. Every non-markdown file a public markdown file links to will also be served. However, private markdown files a public one links to will not be served.
+- **Description:** Serve the every non-hidden markdown file in the directory and consider all of them as `public`. Remove it if you just want to serve the `public` nodes. A markdown file is considered public if its `public` metadata field is set to `true`. If it's not `no`, non-markdown files containing a `~` prefix in their filename will not be served.
 - **Default:** `yes`
-
-### NO_ATTACHMENT_CHECK
-- **Usage:** `NO_ATTACHMENT_CHECK=true`
-- **Description:** By default, Mandos serves non-markdown files only if they have an inlink from markdown files. Enabling this option disables this check and can improve attachment serving performance.
-- **Default:** Empty string. Mandos checks if a non-markdown file contain an inlink before serving.
 
 ### MD_TEMPLATES
 - **Usage:** `MD_TEMPLATES=/path/to/templates/folder`
@@ -182,7 +165,7 @@ env -S $(grep -v '^#' /etc/mandos/config.env) mandos
 
 ### RATE_LIMIT
 - **Usage:** `RATE_LIMIT=!md:80:80,!att:80:80,solotemp1.json:80:45,solotemp2.txt:20:45`
-- **Description:** Comma separated list of items for rate limiting endpoints. Each item is separated to three parts. The first one is can be `!md`, `!att` or the solo templates given in `SOLO_TEMPLATES`. `!md` is for all the markdown files and `!att` is for all attachments and static files. The second part is the expiration time of the limit in seconds, and the last part is the maximum number of recent connections during "expiration seconds" before sending a 429 response.
+- **Description:** Comma separated list of items for rate limiting endpoints. Each item is separated to three parts. The first one is can be `!md`, `!att` or the solo templates given in `SOLO_TEMPLATES`. `!md` is for all the markdown files and `!att` is for all non-markdown files. The second part is the expiration time of the limit in seconds, and the last part is the maximum number of recent connections during "expiration seconds" before sending a 429 response.
 - **Default:** No rate limit is applied.
 - **Warning:** Set `BEHIND_PROXY` if you are behind an another server.
 
@@ -422,7 +405,7 @@ While the template functions can be used from any template, the scope of the var
 ## Solo Templates
 A solo template is a non-markdown file that can execute the template functions and serve the results to GET and POST requests. These files can be used to, for example, generate an RSS feed, create a comment or delete a markdown file.
 
-- The solo templates needs to be outside of the `static` folder, and they cannot be a markdown file.
+- The solo templates cannot be a markdown file.
 - If the request method is POST, you can access to the form values in solo templates.
 
 An example `nodes.json` file to create a node list in json format. It can allow you to create cool useless graphs like the ones in Obsidian.

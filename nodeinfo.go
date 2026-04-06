@@ -20,7 +20,7 @@ var mdLinkRe = regexp.MustCompile(`\]\(/([^)?#]*)[^)]*\)`) // Extract internal m
 var htmlSrcRe = regexp.MustCompile(`<[^>]+src="/([^"?#]+)[^>]`) // Extract internal html links inside src. Do not capture after ? or #
 func getNodeInfo(relPath string, onlyContent bool) (nodeinfo Node, err error) {
 
-	absPath := SafeJoin(notesPath, relPath)
+	absPath := SafeJoin(relPath)
 	if absPath==""{return nodeinfo,err}
 
 	data, err := os.ReadFile(absPath); if err != nil {return nodeinfo, err};
@@ -70,8 +70,12 @@ func getNodeInfo(relPath string, onlyContent bool) (nodeinfo Node, err error) {
 		}
 
 		// Extract the title
-		if !onlyContent && !gotTitle && bytes.HasPrefix(line, []byte("# ")){
-			nodeinfo.Title = strings.TrimPrefix(string(line), "# "); gotTitle = true;
+		if !onlyContent && !gotTitle {
+			trimmedLine := bytes.TrimSpace(line)
+			if bytes.HasPrefix(trimmedLine, []byte("# ")){
+				nodeinfo.Title = strings.TrimPrefix(string(trimmedLine), "# ");
+				gotTitle = true;
+			}
 		}
 
 		// Write the lines to the content buffer

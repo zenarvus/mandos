@@ -3,7 +3,6 @@ package main
 import( "container/list"; "sync"; "time" )
 
 var nodeCache = NewLRUCache[string, Node](500)
-var attachmentExistenceCache = NewTTLCache[string, struct{}](5 * time.Minute)
 var queryCache = NewTTLCache[string, []map[string]any](5 * time.Minute)
 
 /////////////////////////////////////// LRU CACHE ///////////////////////////////////////

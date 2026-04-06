@@ -87,8 +87,7 @@ func watchFileChanges() {
 				// If a new directory is created, watch it
 				if event.Op&fsnotify.Create != 0 {
 					info, err := os.Stat(event.Name)
-					// Do not watch the static folder, as its always public.
-					if err == nil && info.IsDir() && !strings.HasPrefix(event.Name, filepath.Join(notesPath,"static")){
+					if err == nil && info.IsDir() {
 						err = addWatchRecursive(filepath.Join(notesPath,relPath))
 						if err != nil {log.Printf("Error adding new directory to watcher: %v", err)}
 					}

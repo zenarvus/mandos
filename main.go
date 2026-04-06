@@ -1,7 +1,7 @@
 package main
 
 import (
-	"database/sql"; "fmt"; "log"; "mime"; "path"; "path/filepath"; "runtime"
+	"fmt"; "log"; "mime"; "path/filepath"; "runtime"
 	"strings"; "time"; "bytes"
 
 	"github.com/gofiber/fiber/v2"
@@ -37,8 +37,7 @@ func main() {
 
 	app := fiber.New(fiberConfig)
 
-	attExistStmt := initRoutes(app)
-	if attExistStmt != nil { defer attExistStmt.Close() }
+	initRoutes(app)
 
 	var m runtime.MemStats; runtime.ReadMemStats(&m)
 	fmt.Printf("Memory Used: %.2f MiB\n", float64(m.Sys)/1024/1024)
@@ -52,11 +51,7 @@ func main() {
 		err := app.ListenTLS(":"+getEnvValue("PORT"),certFile,keyFile); if err!=nil{panic(err)}
 	}
 }
-func initRoutes(app *fiber.App) *sql.Stmt {
-
-	noAttCheck := getEnvValue("NO_ATTACHMENT_CHECK") == "true"
-	// Prepare the attachment existence check statement.
-	attExistStmt,_ := DB.Prepare(`SELECT file FROM attachments WHERE "file" = ? LIMIT 1;`)
+func initRoutes(app *fiber.App) {
 
 	if getEnvValue("LOGGING")=="true" {
 		app.Use(func(c *fiber.Ctx)error{ log.Println(c.IP(), c.Path()); return c.Next() })
@@ -105,9 +100,6 @@ func initRoutes(app *fiber.App) *sql.Stmt {
 		Level: compress.LevelBestSpeed, // 1
 	}))
 
-	// All files in static folder are served
-	app.Static("/static", path.Join(notesPath,"/static"), fiber.Static{MaxAge:60*60*24*7})
-
 	type PageVars struct { Now int64; Url string; *Node; Ctx *fiber.Ctx; }
 
 	// Serve the solo templates.
@@ -147,7 +139,6 @@ func initRoutes(app *fiber.App) *sql.Stmt {
 	// If any soloLimits element is left. It means that solo template for it does not exists.
 	for soloLimit := range soloLimits {log.Println("Solo template for the limit does not exists:",soloLimit)}
 
-	// Only markdown files with public: true metadata and their previewed attachments are served
 	app.Get("/*", func(c *fiber.Ctx) error {
 		urlPath := "/"+c.Params("*");
 		if urlPath=="/"{urlPath += indexPage};
@@ -205,30 +196,25 @@ func initRoutes(app *fiber.App) *sql.Stmt {
 		// If the wanted file is not markdown
 		default:
 			// Sanitize the user given urlPath.
-			absPath := SafeJoin(notesPath, urlPath)
+			absPath := SafeJoin(urlPath)
+			trimmedAbs := strings.TrimPrefix(absPath, notesPath) // notesPath does not contain "/" at the end, so trimmedAbs will start with a slash.
 			if absPath==""{return c.SendStatus(404)}
 			// If it is a hidden file, do not show it.
-			if strings.HasPrefix(filepath.Base(absPath), ".") {return c.SendStatus(404)} 
+			if strings.Contains(trimmedAbs, "/.") {
+				return c.SendStatus(404)
 
-			if !noAttCheck {
-				// Prefer the cached attachment existence value.
-				_, exists := attachmentExistenceCache.Get(absPath)
-				if !exists {
-					// Check if at least one node has a link to the attachment.
-					err := attExistStmt.QueryRow(urlPath).Scan(&urlPath)
-					if err != nil {
-						if err == sql.ErrNoRows { return c.SendStatus(404) }
-						log.Println("Database error:", err); return c.SendStatus(500)
-					}
-					attachmentExistenceCache.Set(absPath, struct{}{}, time.Second*30) // Save to the cache.
-				}
-			}
+			// If it's a mandos level private file, and we want to show only public, do not serve them.
+			} else if strings.Contains(trimmedAbs, "/~") && onlyPublic != "no" {
+				return c.SendStatus(404)
+			} 
 
-			// If we reach here, the attachment is found.
+			// If we reach here, the file should be served.
 			c.Response().Header.Add("Cache-Control", "max-age=604800")
-			return c.SendFile(absPath)
+			// On error, SendFile leaks info about the absolute filepath. We do not want that. So we return 404 regardless of the real error.
+			if err := c.SendFile(absPath); err != nil {
+				return c.SendStatus(fiber.StatusNotFound)
+			}
+			return nil
 		}
 	})
-
-	return attExistStmt
 }
